@@ -1,0 +1,476 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  STUDENT
+  HANDLER
+  REVIEWER
+  ADMINISTRATOR
+  MANAGEMENT
+}
+
+enum GrievancePriority {
+  NORMAL
+  HIGH
+}
+
+enum GrievanceStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_MANUAL_ASSIGNMENT
+  ASSIGNED
+  UNDER_REVIEW
+  AWAITING_INFORMATION
+  ESCALATED
+  RESOLVED
+  CLOSED
+  WITHDRAWN
+}
+
+enum AssignmentType {
+  AUTO
+  MANUAL
+  REOPEN
+}
+
+enum EvidenceScanStatus {
+  PENDING
+  CLEAN
+  REJECTED
+  UNAVAILABLE
+}
+
+enum MessageAudience {
+  STUDENT_AND_STAFF
+  STAFF_ONLY
+}
+
+enum CaseMessageType {
+  INFO_REQUEST
+  STUDENT_RESPONSE
+  PUBLIC_NOTE
+  INTERNAL_NOTE
+}
+
+enum EscalationState {
+  FLAGGED
+  IDENTIFYING_REVIEWER
+  AWAITING_MANUAL
+  REVIEWER_ASSIGNED
+  UNDER_REVIEWER_HANDLING
+  COMPLETED
+  CANCELLED
+  ESCALATED_FURTHER
+}
+
+enum NotificationType {
+  SUBMISSION
+  ASSIGNMENT
+  STATUS_CHANGE
+  DEADLINE_REMINDER
+  ESCALATION
+  RESOLUTION
+  CLOSURE
+  INFORMATION_REQUEST
+  MANUAL_ASSIGNMENT_REQUIRED
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  RETRY
+  DEAD
+}
+
+enum AuditSource {
+  API
+  WORKER
+  SEED
+  ADMIN
+}
+
+enum JobRunStatus {
+  RUNNING
+  SUCCEEDED
+  PARTIAL
+  FAILED
+}
+
+model Department {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique @db.VarChar(32)
+  name      String   @unique @db.VarChar(160)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  users     User[]
+
+  @@map("departments")
+}
+
+model User {
+  id                    String             @id @default(uuid()) @db.Uuid
+  email                 String             @unique @db.VarChar(320)
+  name                  String             @db.VarChar(160)
+  passwordHash          String             @map("password_hash")
+  role                  UserRole
+  departmentId          String?            @map("department_id") @db.Uuid
+  contact               String?            @db.VarChar(80)
+  isActive              Boolean            @default(true) @map("is_active")
+  lastLoginAt           DateTime?          @map("last_login_at") @db.Timestamptz(6)
+  createdAt             DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  department            Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  sessions              Session[]
+  categoriesCreated     Category[]         @relation("CategoryCreator")
+  primaryCategories     Category[]         @relation("PrimaryCategoryHandler")
+  categoryHandlers      CategoryHandler[]  @relation("EligibleCategoryHandler")
+  categoryMappingsMade  CategoryHandler[]  @relation("CategoryHandlerCreator")
+  escalationRules       EscalationRule[]   @relation("RuleReviewer")
+  rulesCreated          EscalationRule[]   @relation("RuleCreator")
+  grievancesFiled       Grievance[]        @relation("GrievanceStudent")
+  assignments           Assignment[]       @relation("AssignmentHandler")
+  assignmentsMade       Assignment[]       @relation("AssignmentActor")
+  evidenceUploads       Evidence[]         @relation("EvidenceUploader")
+  statusEvents          StatusHistory[]    @relation("StatusActor")
+  messages              CaseMessage[]      @relation("MessageAuthor")
+  escalationsMade       Escalation[]       @relation("EscalationActor")
+  escalationsReviewed   Escalation[]       @relation("EscalationReviewer")
+  resolutions           ResolutionCycle[]  @relation("ResolutionActor")
+  feedback              Feedback[]         @relation("FeedbackStudent")
+  notifications         Notification[]     @relation("NotificationRecipient")
+  auditEvents           AuditLog[]         @relation("AuditActor")
+
+  @@index([role, isActive])
+  @@map("users")
+}
+
+model Session {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  tokenHash    Bytes     @unique @map("token_hash")
+  csrfHash     Bytes     @map("csrf_hash")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt   DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(6)
+  userAgentHash Bytes?   @map("user_agent_hash")
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("sessions")
+}
+
+model Category {
+  id               String           @id @default(uuid()) @db.Uuid
+  name             String           @unique @db.VarChar(100)
+  description      String?
+  isActive         Boolean          @default(true) @map("is_active")
+  slaHours         Int              @map("sla_hours")
+  primaryHandlerId String?          @map("primary_handler_id") @db.Uuid
+  createdById      String           @map("created_by_id") @db.Uuid
+  policyVersion    Int              @default(1) @map("policy_version")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  primaryHandler   User?            @relation("PrimaryCategoryHandler", fields: [primaryHandlerId], references: [id], onDelete: Restrict)
+  createdBy        User             @relation("CategoryCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  handlerMappings  CategoryHandler[]
+  escalationRules  EscalationRule[]
+  grievances       Grievance[]
+
+  @@index([isActive, name])
+  @@map("categories")
+}
+
+model CategoryHandler {
+  id         String    @id @default(uuid()) @db.Uuid
+  categoryId String    @map("category_id") @db.Uuid
+  handlerId  String    @map("handler_id") @db.Uuid
+  isPrimary  Boolean   @default(false) @map("is_primary")
+  activeFrom DateTime  @default(now()) @map("active_from") @db.Timestamptz(6)
+  activeTo   DateTime? @map("active_to") @db.Timestamptz(6)
+  createdById String   @map("created_by_id") @db.Uuid
+  category   Category  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  handler    User      @relation("EligibleCategoryHandler", fields: [handlerId], references: [id], onDelete: Restrict)
+  createdBy  User      @relation("CategoryHandlerCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([categoryId, handlerId])
+  @@index([categoryId, isPrimary, activeTo])
+  @@map("category_handlers")
+}
+
+model EscalationRule {
+  id            String   @id @default(uuid()) @db.Uuid
+  categoryId    String   @map("category_id") @db.Uuid
+  level         Int
+  reviewerId    String?  @map("reviewer_id") @db.Uuid
+  timelineHours Int?     @map("timeline_hours")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdById   String   @map("created_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  category      Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  reviewer      User?    @relation("RuleReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  createdBy     User     @relation("RuleCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([categoryId, level])
+  @@map("escalation_rules")
+}
+
+model Grievance {
+  id                 String           @id @default(uuid()) @db.Uuid
+  caseNumber         String?          @unique @map("case_number") @db.VarChar(24)
+  submissionKey      String?          @unique @map("submission_key") @db.VarChar(80)
+  studentId          String           @map("student_id") @db.Uuid
+  categoryId         String?          @map("category_id") @db.Uuid
+  title              String?          @db.VarChar(150)
+  description        String?
+  incidentDate       DateTime?        @map("incident_date") @db.Date
+  location           String?          @db.VarChar(240)
+  priority           GrievancePriority @default(NORMAL)
+  status             GrievanceStatus  @default(DRAFT)
+  submittedAt        DateTime?        @map("submitted_at") @db.Timestamptz(6)
+  resolutionDeadline DateTime?        @map("resolution_deadline") @db.Timestamptz(6)
+  overdueFlag        Boolean          @default(false) @map("overdue_flag")
+  closedAt           DateTime?        @map("closed_at") @db.Timestamptz(6)
+  reopenDeadline     DateTime?        @map("reopen_deadline") @db.Timestamptz(6)
+  version            Int              @default(1)
+  slaHoursSnapshot   Int?             @map("sla_hours_snapshot")
+  slaPolicyVersion   Int?             @map("sla_policy_version")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student            User             @relation("GrievanceStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  category           Category?        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  assignments        Assignment[]
+  evidence           Evidence[]
+  statusHistory      StatusHistory[]
+  messages           CaseMessage[]
+  escalations        Escalation[]
+  resolutionCycles   ResolutionCycle[]
+  notifications      Notification[]
+  auditEvents        AuditLog[]
+
+  @@index([status, resolutionDeadline])
+  @@index([studentId, createdAt])
+  @@index([categoryId, createdAt])
+  @@map("grievances")
+}
+
+model Assignment {
+  id           String         @id @default(uuid()) @db.Uuid
+  grievanceId  String         @map("grievance_id") @db.Uuid
+  handlerId    String         @map("handler_id") @db.Uuid
+  assignedById String?        @map("assigned_by_id") @db.Uuid
+  assignmentType AssignmentType @map("assignment_type")
+  reason       String?
+  assignedAt   DateTime       @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  endedAt      DateTime?      @map("ended_at") @db.Timestamptz(6)
+  endReason    String?        @map("end_reason")
+  grievance    Grievance      @relation(fields: [grievanceId], references: [id], onDelete: Restrict)
+  handler      User           @relation("AssignmentHandler", fields: [handlerId], references: [id], onDelete: Restrict)
+  assignedBy   User?          @relation("AssignmentActor", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@index([grievanceId, assignedAt])
+  @@index([handlerId, endedAt, assignedAt])
+  @@map("assignments")
+}
+
+model Evidence {
+  id           String            @id @default(uuid()) @db.Uuid
+  grievanceId  String            @map("grievance_id") @db.Uuid
+  uploadedById String            @map("uploaded_by_id") @db.Uuid
+  originalName String            @map("original_name") @db.VarChar(255)
+  storageKey   String            @unique @map("storage_key") @db.VarChar(512)
+  mediaType    String            @map("media_type") @db.VarChar(100)
+  sizeBytes    BigInt            @map("size_bytes")
+  sha256       Bytes
+  scanStatus   EvidenceScanStatus @default(PENDING) @map("scan_status")
+  uploadedAt   DateTime           @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+  deletedAt    DateTime?          @map("deleted_at") @db.Timestamptz(6)
+  grievance    Grievance          @relation(fields: [grievanceId], references: [id], onDelete: Restrict)
+  uploadedBy   User               @relation("EvidenceUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([grievanceId, uploadedAt])
+  @@map("evidence")
+}
+
+model StatusHistory {
+  id               String          @id @default(uuid()) @db.Uuid
+  grievanceId      String          @map("grievance_id") @db.Uuid
+  previousStatus   GrievanceStatus? @map("previous_status")
+  newStatus        GrievanceStatus @map("new_status")
+  actorId          String?         @map("actor_id") @db.Uuid
+  actorRoleSnapshot UserRole?      @map("actor_role_snapshot")
+  reason           String?
+  publicNote       String?         @map("public_note")
+  occurredAt       DateTime        @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  requestId        String?         @map("request_id") @db.VarChar(80)
+  grievance        Grievance       @relation(fields: [grievanceId], references: [id], onDelete: Restrict)
+  actor            User?           @relation("StatusActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([grievanceId, occurredAt])
+  @@map("status_history")
+}
+
+model CaseMessage {
+  id          String         @id @default(uuid()) @db.Uuid
+  grievanceId String         @map("grievance_id") @db.Uuid
+  authorId    String         @map("author_id") @db.Uuid
+  audience    MessageAudience
+  messageType CaseMessageType @map("message_type")
+  body        String
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  inReplyToId String?        @map("in_reply_to_id") @db.Uuid
+  grievance   Grievance      @relation(fields: [grievanceId], references: [id], onDelete: Restrict)
+  author      User           @relation("MessageAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  inReplyTo   CaseMessage?   @relation("MessageReplies", fields: [inReplyToId], references: [id], onDelete: Restrict)
+  replies     CaseMessage[]  @relation("MessageReplies")
+
+  @@index([grievanceId, createdAt])
+  @@map("case_messages")
+}
+
+model Escalation {
+  id             String          @id @default(uuid()) @db.Uuid
+  grievanceId    String          @map("grievance_id") @db.Uuid
+  level          Int
+  escalatedById  String?         @map("escalated_by_id") @db.Uuid
+  reviewerId     String?         @map("reviewer_id") @db.Uuid
+  reasonType     String          @map("reason_type") @db.VarChar(40)
+  reason         String
+  state          EscalationState @default(FLAGGED)
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  reviewerAssignedAt DateTime?   @map("reviewer_assigned_at") @db.Timestamptz(6)
+  completedAt    DateTime?       @map("completed_at") @db.Timestamptz(6)
+  cancelledAt    DateTime?       @map("cancelled_at") @db.Timestamptz(6)
+  previousLevelId String?        @map("previous_level_id") @db.Uuid
+  grievance      Grievance       @relation(fields: [grievanceId], references: [id], onDelete: Restrict)
+  escalatedBy    User?           @relation("EscalationActor", fields: [escalatedById], references: [id], onDelete: Restrict)
+  reviewer       User?           @relation("EscalationReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  previousLevel  Escalation?     @relation("EscalationLevels", fields: [previousLevelId], references: [id], onDelete: Restrict)
+  nextLevels     Escalation[]    @relation("EscalationLevels")
+
+  @@unique([grievanceId, level])
+  @@index([state, createdAt])
+  @@map("escalations")
+}
+
+model ResolutionCycle {
+  id             String     @id @default(uuid()) @db.Uuid
+  grievanceId    String     @map("grievance_id") @db.Uuid
+  cycleNumber    Int        @map("cycle_number")
+  resolvedById   String     @map("resolved_by_id") @db.Uuid
+  remarks        String
+  resolvedAt     DateTime   @default(now()) @map("resolved_at") @db.Timestamptz(6)
+  feedbackDeadline DateTime @map("feedback_deadline") @db.Timestamptz(6)
+  closedAt       DateTime?  @map("closed_at") @db.Timestamptz(6)
+  reopenDeadline DateTime?  @map("reopen_deadline") @db.Timestamptz(6)
+  isCurrent      Boolean    @default(true) @map("is_current")
+  grievance      Grievance  @relation(fields: [grievanceId], references: [id], onDelete: Restrict)
+  resolvedBy     User       @relation("ResolutionActor", fields: [resolvedById], references: [id], onDelete: Restrict)
+  feedback       Feedback?
+
+  @@unique([grievanceId, cycleNumber])
+  @@index([grievanceId, isCurrent])
+  @@map("resolution_cycles")
+}
+
+model Feedback {
+  id               String         @id @default(uuid()) @db.Uuid
+  resolutionCycleId String        @unique @map("resolution_cycle_id") @db.Uuid
+  studentId        String         @map("student_id") @db.Uuid
+  rating           Int
+  comment          String?
+  submittedAt      DateTime       @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  resolutionCycle  ResolutionCycle @relation(fields: [resolutionCycleId], references: [id], onDelete: Restrict)
+  student          User           @relation("FeedbackStudent", fields: [studentId], references: [id], onDelete: Restrict)
+
+  @@map("feedback")
+}
+
+model Notification {
+  id          String                @id @default(uuid()) @db.Uuid
+  recipientId String                @map("recipient_id") @db.Uuid
+  grievanceId String?               @map("grievance_id") @db.Uuid
+  type        NotificationType
+  title       String                @db.VarChar(180)
+  body        String?
+  safePayload Json                  @default("{}") @map("safe_payload")
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  readAt      DateTime?             @map("read_at") @db.Timestamptz(6)
+  recipient   User                  @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Restrict)
+  grievance   Grievance?            @relation(fields: [grievanceId], references: [id], onDelete: Restrict)
+  outbox      NotificationOutbox[]
+
+  @@index([recipientId, createdAt])
+  @@index([recipientId, readAt])
+  @@map("notifications")
+}
+
+model NotificationOutbox {
+  id                String             @id @default(uuid()) @db.Uuid
+  notificationId    String             @map("notification_id") @db.Uuid
+  channel           NotificationChannel
+  status            OutboxStatus       @default(PENDING)
+  attemptCount      Int                @default(0) @map("attempt_count")
+  availableAt       DateTime           @default(now()) @map("available_at") @db.Timestamptz(6)
+  lockedUntil       DateTime?          @map("locked_until") @db.Timestamptz(6)
+  lastErrorCode     String?            @map("last_error_code") @db.VarChar(80)
+  lastErrorRedacted String?            @map("last_error_redacted")
+  idempotencyKey    String             @unique @map("idempotency_key") @db.VarChar(200)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  sentAt            DateTime?          @map("sent_at") @db.Timestamptz(6)
+  notification      Notification       @relation(fields: [notificationId], references: [id], onDelete: Restrict)
+
+  @@index([status, availableAt])
+  @@map("notification_outbox")
+}
+
+model AuditLog {
+  id          BigInt        @id @default(autoincrement())
+  actorId     String?       @map("actor_id") @db.Uuid
+  entityType  String        @map("entity_type") @db.VarChar(60)
+  entityId    String?       @map("entity_id") @db.VarChar(80)
+  grievanceId String?       @map("grievance_id") @db.Uuid
+  action      String        @db.VarChar(80)
+  details     Json          @default("{}")
+  occurredAt  DateTime      @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  requestId   String?       @map("request_id") @db.VarChar(80)
+  source      AuditSource
+  actor       User?         @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  grievance   Grievance?    @relation(fields: [grievanceId], references: [id], onDelete: Restrict)
+
+  @@index([grievanceId, occurredAt])
+  @@index([actorId, occurredAt])
+  @@index([occurredAt])
+  @@map("audit_log")
+}
+
+model JobRun {
+  id             String       @id @default(uuid()) @db.Uuid
+  jobType        String       @map("job_type") @db.VarChar(60)
+  startedAt      DateTime     @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt     DateTime?    @map("finished_at") @db.Timestamptz(6)
+  status         JobRunStatus @default(RUNNING)
+  checkedCount   Int          @default(0) @map("checked_count")
+  succeededCount Int          @default(0) @map("succeeded_count")
+  skippedCount   Int          @default(0) @map("skipped_count")
+  failedCount    Int          @default(0) @map("failed_count")
+  errorSummary   String?      @map("error_summary")
+  workerId       String       @map("worker_id") @db.VarChar(120)
+  idempotencyKey String       @unique @map("idempotency_key") @db.VarChar(200)
+
+  @@map("job_runs")
+}

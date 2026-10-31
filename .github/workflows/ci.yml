@@ -1,0 +1,47 @@
+name: Foundation CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sgrs
+          POSTGRES_PASSWORD: sgrs_local_only
+          POSTGRES_DB: sgrs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sgrs -d sgrs"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://sgrs:sgrs_local_only@localhost:5432/sgrs?schema=public
+      WEB_ORIGIN: http://localhost:5173
+      API_HOST: 127.0.0.1
+      API_PORT: 4000
+      SGRS_SEED_PASSWORD: ci-only-synthetic-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm db:generate
+      - run: pnpm db:migrate:deploy
+      - run: pnpm db:seed
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build

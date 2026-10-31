@@ -1,0 +1,35 @@
+{
+  "name": "sgrs-rebuild",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "pnpm db:generate && pnpm --parallel --filter @sgrs/web --filter @sgrs/api --filter @sgrs/worker dev",
+    "build": "pnpm --filter @sgrs/contracts build && pnpm db:generate && pnpm -r --if-present build",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm db:generate && pnpm --filter @sgrs/contracts build && pnpm -r --if-present typecheck",
+    "test": "pnpm db:generate && pnpm --filter @sgrs/contracts build && pnpm -r --if-present test",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter @sgrs/api prisma:generate",
+    "db:migrate:dev": "pnpm --filter @sgrs/api prisma:migrate:dev",
+    "db:migrate:deploy": "pnpm --filter @sgrs/api prisma:migrate:deploy",
+    "db:seed": "pnpm --filter @sgrs/api db:seed",
+    "db:setup": "pnpm db:up && pnpm db:migrate:deploy && pnpm db:seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^24.10.0",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4"
+  },
+  "type": "module"
+}
