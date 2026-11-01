@@ -51,6 +51,7 @@ function accountFor(role: (typeof accounts)[number]['role']): (typeof accounts)[
 async function signIn(page: Page, email: string): Promise<void> {
   const account = accounts.find((candidate) => candidate.email === email);
   if (!account) throw new Error(`No E2E role route is registered for ${email}.`);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/login');
   await page.getByLabel('Email address').fill(email);
   await page.getByLabel('Password').fill(password);
@@ -87,10 +88,20 @@ test.describe('role entry and route boundaries', () => {
     // makes axe report transient contrast ratios that users do not encounter once
     // the animation completes. Reduced motion also exercises the accessible variant.
     await page.emulateMedia({ reducedMotion: 'reduce' });
+    expect(
+      await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches),
+    ).toBe(true);
     await page.goto('/');
     await expect(
       page.getByRole('heading', { name: 'A concern deserves a clear path forward.' }),
     ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.locator('.landing-story__intro > .eyebrow').evaluate((element) => {
+          return getComputedStyle(element).opacity;
+        }),
+      )
+      .toBe('1');
     const accessibility = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
       .analyze();

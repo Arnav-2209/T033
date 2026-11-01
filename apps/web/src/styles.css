@@ -1966,7 +1966,9 @@ td strong,
   margin-bottom: clamp(3rem, 7vw, 6.5rem);
 }
 .landing-story__intro .eyebrow,
-.role-atlas .eyebrow,
+.role-atlas .eyebrow {
+  color: var(--copper);
+}
 .public-cta .eyebrow {
   color: #d8a080;
 }
