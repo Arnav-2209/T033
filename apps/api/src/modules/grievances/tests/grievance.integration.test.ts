@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import { requireIsolatedTestDatabase } from '../../../testing/require-isolated-test-database.js';
 import { loadEnvironment } from '../../../config/env.js';
 import { createPrismaClient } from '../../../infrastructure/database/client.js';
 import { LocalEvidenceStorage } from '../../../infrastructure/storage/local-evidence-storage.js';
@@ -11,6 +12,8 @@ import { PrismaGrievanceRepository } from '../../../infrastructure/repositories/
 import { buildApp } from '../../../app.js';
 
 const environment = loadEnvironment();
+if (!environment.DATABASE_URL) throw new Error('DATABASE_URL is required for integration tests.');
+requireIsolatedTestDatabase(environment.DATABASE_URL);
 if (!environment.DATABASE_URL)
   throw new Error('DATABASE_URL is required for grievance integration tests.');
 if (!process.env.SGRS_SEED_PASSWORD)
@@ -100,7 +103,7 @@ describe('Phase 3 grievance API and persistence', () => {
       headers: mutationHeaders(),
       payload: {
         version: draft.version,
-        title: `Phase 3 integration ${crypto.randomUUID()}`,
+        title: 'Student concern integration fixture',
         description: 'A test report for the grievance lifecycle.',
         categoryId: hostel.id,
         incidentDate: new Date().toISOString().slice(0, 10),
@@ -137,6 +140,7 @@ describe('Phase 3 grievance API and persistence', () => {
       slaPolicyVersion: expect.any(Number),
     });
     expect(submitted.json().data.evidence).toHaveLength(1);
+    const evidenceId = submitted.json().data.evidence[0].id as string;
     expect(
       submitted.json().data.statusHistory.map((entry: { newStatus: string }) => entry.newStatus),
     ).toEqual(['DRAFT', 'SUBMITTED', 'ASSIGNED']);
@@ -165,6 +169,35 @@ describe('Phase 3 grievance API and persistence', () => {
     expect(await prisma.assignment.count({ where: { grievanceId: draft.id, endedAt: null } })).toBe(
       1,
     );
+
+    const managementLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      headers: { origin: environment.WEB_ORIGIN },
+      payload: {
+        email: 'management@demo.sgrs.local',
+        password: process.env.SGRS_SEED_PASSWORD,
+      },
+    });
+    const managementCookies = managementLogin.headers['set-cookie'];
+    const cookieParts = Array.isArray(managementCookies) ? managementCookies : [managementCookies];
+    const managementSession = cookieParts.find(
+      (item) => typeof item === 'string' && item.startsWith('sgrs_session='),
+    );
+    const managementCsrf = cookieParts.find(
+      (item) => typeof item === 'string' && item.startsWith('sgrs_csrf='),
+    );
+    if (typeof managementSession !== 'string' || typeof managementCsrf !== 'string') {
+      throw new Error('Management login did not return authentication cookies.');
+    }
+    const evidenceDenied = await app.inject({
+      method: 'GET',
+      url: `/api/v1/grievances/${draft.id}/evidence/${evidenceId}`,
+      headers: {
+        cookie: `${managementSession.split(';', 1)[0]}; ${managementCsrf.split(';', 1)[0]}`,
+      },
+    });
+    expect(evidenceDenied.statusCode).toBe(403);
   });
 
   it('routes an unconfigured category to pending manual assignment and denies management case access', async () => {
@@ -181,7 +214,7 @@ describe('Phase 3 grievance API and persistence', () => {
       headers: mutationHeaders(),
       payload: {
         version: draft.version,
-        title: `Manual route ${crypto.randomUUID()}`,
+        title: 'Manual assignment test concern',
         description: 'A test for manual assignment.',
         categoryId: other.id,
         incidentDate: new Date().toISOString().slice(0, 10),

@@ -16,6 +16,6 @@ export default tseslint.config(
       '@typescript-eslint/no-non-null-assertion': 'error',
     },
   },
-  { files: ['**/*.js'], languageOptions: { globals: globals.node } },
+  { files: ['**/*.{js,mjs}'], languageOptions: { globals: globals.node } },
   prettier,
 );

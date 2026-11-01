@@ -16,6 +16,8 @@ All routes are under `/api/v1`. Authenticated cookie requests use the Phase 2 se
 
 `Management` and `Reviewer` have no case-level API access in Phase 3. Reporting and reviewer functions are later scopes. Draft write DTO fields are `title`, `description`, `categoryId`, `incidentDate` (`YYYY-MM-DD`), `location`, and optional `priority`; PATCH also requires `version`. Evidence upload DTO returns `{ items: [{ id, originalName, mediaType, sizeBytes, uploadedAt }], rejectedFiles: [{ fileName, code, message }] }`. Submit/detail DTOs include case number, current status, category, handler display name, incident date, SLA snapshot and public status history.
 
+Every grievance summary also includes `hasDraftContent`, a server-computed boolean indicating whether a draft contains any saved title, description, category, incident date, location, non-default priority or evidence. The student dashboard uses this flag to omit empty drafts; it does not change case ownership, delete draft records or expose draft description text in list responses. Opening a new grievance form does not create a record; a draft is created when the student first saves, uploads evidence or submits.
+
 No public registration endpoint is provided. Role is obtained from the authenticated server session, never from a caller-supplied role field.
 
 ## Phase 4 workflow API
@@ -39,4 +41,41 @@ All mutations below require the authenticated cookie session, same-origin check 
 | GET    | `/admin/escalations/manual-assignment`                                       | Administrator                             | List escalation levels waiting for manual reviewer assignment.                                                   |
 | PATCH  | `/admin/escalations/:escalationId/reviewer`                                  | Administrator                             | Assign an active reviewer; enqueue notification and audit record transactionally.                                |
 
-Case-detail DTO includes chronological `messages` and `escalationLevels`. Student responses omit `STAFF_ONLY` messages and escalation assignment metadata. Reviewer details require a reviewer assignment on the case; reviewer actions further require their currently active handling level. Resolution, decision override, feedback and closure remain later-phase workflows.
+Case-detail DTO includes chronological `messages` and `escalationLevels`. Student responses omit `STAFF_ONLY` messages and escalation assignment metadata. Reviewer details require a reviewer assignment on the case; reviewer actions further require their currently active handling level. Resolution cycles and student feedback are included from Phase 5; reopening and decision override remain outside this API until their policies are approved.
+
+## Phase 5 resolution and feedback API
+
+Mutations require an authenticated cookie session, same-origin validation and CSRF token. Case visibility and current assignment are rechecked in the repository transaction; role middleware alone is not sufficient authorization.
+
+| Method | Endpoint                                    | Access                                                                                    | Responsibility                                                                                                                                     |
+| ------ | ------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/handler/grievances/:grievanceId/resolve`  | Currently assigned Handler; case must be `UNDER_REVIEW`                                   | Requires nonblank `remarks`; records the next resolution cycle, status history, audit and student notification/outbox atomically.                  |
+| POST   | `/reviewer/grievances/:grievanceId/resolve` | Reviewer actively handling an assigned escalation level; case must be `ESCALATED`         | Same resolution operation and records as handler resolution, scoped to the active reviewer level.                                                  |
+| POST   | `/student/grievances/:grievanceId/feedback` | Original owning Student; current case must be `RESOLVED` with an unexpired feedback cycle | Accepts integer `rating` 1–5 and optional `comment`; closes the case and appends feedback, history, audit and notification/outbox transactionally. |
+
+Resolution cycle data is included in authorized grievance detail as `resolutionCycles`, in ascending cycle order, with resolver, remarks, resolution timestamp, feedback deadline, closure timestamp and optional feedback. The feedback boundary is inclusive (`submittedAt <= feedbackDeadline`). No reopen route exists; `reopenDeadline` remains unset under DEC-010.
+
+## Phase 6 administration, notifications, reports and audit API
+
+All mutation routes use the authenticated session, same-origin validation and CSRF protection. Identifiers and role scopes are verified by backend services/repositories. Management is restricted to aggregate report responses and has no case-level API access.
+
+| Method | Endpoint                                                    | Access                                           | Responsibility                                                                               |
+| ------ | ----------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| GET    | `/admin/categories`                                         | Administrator                                    | List categories and current routing configuration.                                           |
+| POST   | `/admin/categories`                                         | Administrator + CSRF                             | Create a category and its initial configuration.                                             |
+| PATCH  | `/admin/categories/:categoryId`                             | Administrator + CSRF                             | Update category configuration and SLA/policy values.                                         |
+| POST   | `/admin/categories/:categoryId/handlers`                    | Administrator + CSRF                             | Create a temporal handler mapping, with optional primary designation.                        |
+| DELETE | `/admin/categories/:categoryId/handlers/:mappingId`         | Administrator + CSRF                             | End the active mapping while preserving its history.                                         |
+| PATCH  | `/admin/categories/:categoryId/handlers/:mappingId/primary` | Administrator + CSRF                             | Make an active handler mapping primary for its category.                                     |
+| PUT    | `/admin/categories/:categoryId/escalation-rules`            | Administrator + CSRF                             | Upsert category escalation-level reviewer configuration.                                     |
+| GET    | `/admin/directory?q=&page=&pageSize=`                       | Administrator                                    | Search staff identity, role, category and routing assignment details.                        |
+| GET    | `/notifications?page=&pageSize=`                            | Student, Handler, Reviewer, Administrator        | Read only the caller's recipient-scoped in-app inbox and unread count. Management is denied. |
+| PATCH  | `/notifications/:notificationId/read`                       | Student, Handler, Reviewer, Administrator + CSRF | Mark a caller-owned notification read; repeated mark-read is idempotent.                     |
+| GET    | `/admin/reports/overview`                                   | Administrator                                    | Return aggregate case volume, status and overdue counts.                                     |
+| GET    | `/management/reports/overview`                              | Management                                       | Return the same aggregate overview; no case-level data.                                      |
+| GET    | `/admin/reports/categories?from=&to=`                       | Administrator                                    | Return aggregate categories/status/time report.                                              |
+| GET    | `/management/reports/categories?from=&to=`                  | Management                                       | Return aggregate categories/status/time report only.                                         |
+| GET    | `/admin/reports/handlers?from=&to=`                         | Administrator                                    | Return handler current load and first-resolution elapsed-time metrics.                       |
+| GET    | `/admin/grievances/:grievanceId/audit?page=&pageSize=`      | Administrator                                    | Read paginated audit events for a case.                                                      |
+
+Period semantics and handler resolution-time formula are provisional per DEC-027. In-app inbox and transactional outbox persistence are implemented; email delivery and deadline reminder cadence are deferred per DEC-031.

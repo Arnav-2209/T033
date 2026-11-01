@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { ReviewerQueueResponse } from '@sgrs/contracts';
 import { ApiClientError, api } from '../lib/api.js';
 import { WorkspaceLayout } from './WorkspaceLayout.js';
+import { ScrollReveal } from '../visual/ScrollReveal.js';
 
 export function ReviewerQueuePage(): ReactNode {
   const [items, setItems] = useState<ReviewerQueueResponse['data']['items']>([]);
@@ -39,7 +40,7 @@ export function ReviewerQueuePage(): ReactNode {
       title="Cases requiring your review."
       introduction="This queue is limited to escalation levels assigned to your reviewer account. Case history, evidence and staff-only remarks remain inside the authorized record."
     >
-      <section className="case-section" aria-labelledby="review-queue-heading">
+      <ScrollReveal as="section" className="case-section" aria-labelledby="review-queue-heading">
         <div className="case-section__heading">
           <div>
             <p className="eyebrow">ESCALATED CASES</p>
@@ -68,8 +69,14 @@ export function ReviewerQueuePage(): ReactNode {
           </p>
         ) : items.length ? (
           <div className="grievance-grid">
-            {items.map((item) => (
-              <article className="grievance-card" key={item.escalationLevel.id}>
+            {items.map((item, index) => (
+              <ScrollReveal
+                as="article"
+                className="grievance-card"
+                key={item.escalationLevel.id}
+                delay={(index % 3) * 0.08}
+                distance={22}
+              >
                 <div className="grievance-card__top">
                   <span className="status-pill">LEVEL {item.escalationLevel.level}</span>
                   <span className="grievance-card__date">{item.caseNumber}</span>
@@ -94,7 +101,7 @@ export function ReviewerQueuePage(): ReactNode {
                 <Link className="grievance-card__link" to={'/app/reviewer/grievances/' + item.id}>
                   Review case file <span aria-hidden="true">↗</span>
                 </Link>
-              </article>
+              </ScrollReveal>
             ))}
           </div>
         ) : (
@@ -106,7 +113,7 @@ export function ReviewerQueuePage(): ReactNode {
             </div>
           </div>
         )}
-      </section>
+      </ScrollReveal>
     </WorkspaceLayout>
   );
 }

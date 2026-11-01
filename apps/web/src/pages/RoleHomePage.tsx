@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthProvider.js';
 import { roleRoutes } from '../auth/LoginPage.js';
 import { useEffect, useState } from 'react';
 import { api, ApiClientError } from '../lib/api.js';
+import { ScrollReveal } from '../visual/ScrollReveal.js';
 
 const roleLabels: Record<UserRole, string> = {
   STUDENT: 'Student',
@@ -14,7 +15,26 @@ const roleLabels: Record<UserRole, string> = {
   MANAGEMENT: 'Institute Management',
 };
 
-export function RoleHomePage({ role }: { role: UserRole }): ReactNode {
+const roleHomeCopy = {
+  ADMINISTRATOR: {
+    eyebrow: 'SYSTEM STEWARDSHIP · ACCOUNTS & ROUTING',
+    title: 'Keep the process clear and accountable.',
+    introduction:
+      'Maintain the people and category routes behind each case, and review escalations waiting for a manual assignment.',
+  },
+  MANAGEMENT: {
+    eyebrow: 'INSTITUTE MANAGEMENT · AGGREGATE OVERSIGHT',
+    title: 'See the shape of resolution.',
+    introduction:
+      'Review aggregate case volumes and category trends. Management reports contain no individual case files or private messages.',
+  },
+} as const;
+
+export function RoleHomePage({
+  role,
+}: {
+  role: Extract<UserRole, 'ADMINISTRATOR' | 'MANAGEMENT'>;
+}): ReactNode {
   const { user, logout } = useAuth();
   const [manual, setManual] = useState<
     Array<{
@@ -46,131 +66,155 @@ export function RoleHomePage({ role }: { role: UserRole }): ReactNode {
   if (!user) return null;
 
   return (
-    <main className="workspace-page">
-      <header className="workspace-header">
-        <Link className="wordmark" to={roleRoutes[user.role]} aria-label="SGRS home">
-          SGRS<span> / {roleLabels[user.role]}</span>
-        </Link>
-        <div className="workspace-header__account">
-          <div>
-            <strong>{user.name}</strong>
-            <span>{user.email}</span>
-          </div>
-          <button className="button button--quiet" onClick={() => void logout()}>
-            Sign out
-          </button>
-        </div>
-      </header>
-      <section className="workspace-intro">
-        <p className="eyebrow">PRIVATE WORKSPACE · {roleLabels[role].toUpperCase()}</p>
-        <h1>Your SGRS desk.</h1>
-        <p>
-          You are signed in as <strong>{user.name}</strong>. This authenticated workspace is ready;
-          case handling and reporting arrive in their approved milestones.
-        </p>
-      </section>
-      <section className="workspace-card" aria-labelledby="workspace-title">
-        <div>
-          <p className="eyebrow">ACCOUNT</p>
-          <h2 id="workspace-title">Your access is verified.</h2>
-          <p>
-            Your permissions come from your account role, checked by the API on every protected
-            request. The browser cannot select or elevate that role.
-          </p>
-        </div>
-        <dl className="account-facts">
-          <div>
-            <dt>Name</dt>
-            <dd>{user.name}</dd>
-          </div>
-          <div>
-            <dt>Email</dt>
-            <dd>{user.email}</dd>
-          </div>
-          <div>
-            <dt>Role</dt>
-            <dd>{roleLabels[user.role]}</dd>
-          </div>
-        </dl>
-        {user.role === 'ADMINISTRATOR' && (
-          <Link className="button button--primary" to="/app/admin/users">
-            Manage accounts <span aria-hidden="true">↗</span>
+    <>
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
+      <main className={`workspace-page workspace-page--${role.toLowerCase()}`} id="main-content">
+        <header className="workspace-header">
+          <Link className="wordmark" to={roleRoutes[user.role]}>
+            SGRS<span> / {roleLabels[user.role]}</span>
           </Link>
-        )}
-      </section>
-      {role === 'ADMINISTRATOR' && (
-        <section className="case-section" aria-labelledby="manual-review-heading">
-          <div className="case-section__heading">
+          <div className="workspace-header__account">
             <div>
-              <p className="eyebrow">ESCALATION ROUTING</p>
-              <h2 id="manual-review-heading">Manual reviewer assignment</h2>
+              <strong>{user.name}</strong>
+              <span>{user.email}</span>
             </div>
-            <span>{manual.length} waiting</span>
+            {user.role !== 'MANAGEMENT' && (
+              <Link className="button button--quiet" to="/app/notifications">
+                Notifications
+              </Link>
+            )}
+            <button className="button button--quiet" onClick={() => void logout()}>
+              Sign out
+            </button>
           </div>
-          {assignmentError && (
-            <p className="notice notice--error" role="alert">
-              {assignmentError}
-            </p>
-          )}
-          {manual.length ? (
-            <div className="manual-assignment-list">
-              {manual.map((item) => (
-                <article key={item.escalationLevel.id}>
-                  <div>
-                    <strong>
-                      {item.caseNumber} · Level {item.escalationLevel.level}
-                    </strong>
-                    <p>
-                      {item.title} — {item.escalationLevel.reason}
-                    </p>
-                  </div>
-                  <label>
-                    Assign reviewer
-                    <select
-                      defaultValue=""
-                      onChange={(event) => {
-                        if (!event.target.value) return;
-                        void api
-                          .assignReviewer(item.escalationLevel.id, event.target.value)
-                          .then(() =>
-                            setManual((current) =>
-                              current.filter(
-                                (entry) => entry.escalationLevel.id !== item.escalationLevel.id,
-                              ),
-                            ),
-                          )
-                          .catch((caught: unknown) =>
-                            setAssignmentError(
-                              caught instanceof ApiClientError
-                                ? caught.message
-                                : 'Reviewer assignment failed.',
-                            ),
-                          );
-                      }}
-                    >
-                      <option value="" disabled>
-                        Choose an active reviewer
-                      </option>
-                      {reviewers.map((reviewer) => (
-                        <option value={reviewer.id} key={reviewer.id}>
-                          {reviewer.name} · {reviewer.email}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </article>
-              ))}
-            </div>
-          ) : (
+        </header>
+        <ScrollReveal as="section" className="workspace-intro" distance={24}>
+          <p className="eyebrow">{roleHomeCopy[role].eyebrow}</p>
+          <h1>{roleHomeCopy[role].title}</h1>
+          <p>{roleHomeCopy[role].introduction}</p>
+        </ScrollReveal>
+        <ScrollReveal as="section" className="workspace-card" aria-labelledby="workspace-title">
+          <div>
+            <p className="eyebrow">ACCOUNT</p>
+            <h2 id="workspace-title">Your access is verified.</h2>
             <p>
-              {role === 'ADMINISTRATOR' && !assignmentError
-                ? 'No escalations are waiting for manual reviewer assignment.'
-                : null}
+              Your permissions come from your account role, checked by the API on every protected
+              request. The browser cannot select or elevate that role.
             </p>
+          </div>
+          <dl className="account-facts">
+            <div>
+              <dt>Name</dt>
+              <dd>{user.name}</dd>
+            </div>
+            <div>
+              <dt>Email</dt>
+              <dd>{user.email}</dd>
+            </div>
+            <div>
+              <dt>Role</dt>
+              <dd>{roleLabels[user.role]}</dd>
+            </div>
+          </dl>
+          {user.role === 'ADMINISTRATOR' && (
+            <div className="workspace-shortcuts">
+              <Link className="button button--primary" to="/app/admin/users">
+                Manage accounts <span aria-hidden="true">↗</span>
+              </Link>
+              <Link className="button button--quiet" to="/app/admin/categories">
+                Categories and staffing
+              </Link>
+              <Link className="button button--quiet" to="/app/admin/reports">
+                Reports and audit
+              </Link>
+            </div>
           )}
-        </section>
-      )}
-    </main>
+          {user.role === 'MANAGEMENT' && (
+            <Link className="button button--primary" to="/app/management/reports">
+              View oversight reports <span aria-hidden="true">↗</span>
+            </Link>
+          )}
+        </ScrollReveal>
+        {role === 'ADMINISTRATOR' && (
+          <ScrollReveal
+            as="section"
+            className="case-section"
+            aria-labelledby="manual-review-heading"
+          >
+            <div className="case-section__heading">
+              <div>
+                <p className="eyebrow">ESCALATION ROUTING</p>
+                <h2 id="manual-review-heading">Manual reviewer assignment</h2>
+              </div>
+              <span>{manual.length} waiting</span>
+            </div>
+            {assignmentError && (
+              <p className="notice notice--error" role="alert">
+                {assignmentError}
+              </p>
+            )}
+            {manual.length ? (
+              <div className="manual-assignment-list">
+                {manual.map((item) => (
+                  <article key={item.escalationLevel.id}>
+                    <div>
+                      <strong>
+                        {item.caseNumber} · Level {item.escalationLevel.level}
+                      </strong>
+                      <p>
+                        {item.title} — {item.escalationLevel.reason}
+                      </p>
+                    </div>
+                    <label>
+                      Assign reviewer
+                      <select
+                        defaultValue=""
+                        onChange={(event) => {
+                          if (!event.target.value) return;
+                          void api
+                            .assignReviewer(item.escalationLevel.id, event.target.value)
+                            .then(() =>
+                              setManual((current) =>
+                                current.filter(
+                                  (entry) => entry.escalationLevel.id !== item.escalationLevel.id,
+                                ),
+                              ),
+                            )
+                            .catch((caught: unknown) =>
+                              setAssignmentError(
+                                caught instanceof ApiClientError
+                                  ? caught.message
+                                  : 'Reviewer assignment failed.',
+                              ),
+                            );
+                        }}
+                      >
+                        <option value="" disabled>
+                          Choose an active reviewer
+                        </option>
+                        {reviewers.map((reviewer) => (
+                          <option value={reviewer.id} key={reviewer.id}>
+                            {reviewer.name} · {reviewer.email}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p>
+                {role === 'ADMINISTRATOR' && !assignmentError
+                  ? 'No escalations are waiting for manual reviewer assignment.'
+                  : null}
+              </p>
+            )}
+          </ScrollReveal>
+        )}
+      </main>
+    </>
   );
 }
 

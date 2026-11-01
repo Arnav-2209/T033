@@ -206,7 +206,6 @@ model CategoryHandler {
   handler    User      @relation("EligibleCategoryHandler", fields: [handlerId], references: [id], onDelete: Restrict)
   createdBy  User      @relation("CategoryHandlerCreator", fields: [createdById], references: [id], onDelete: Restrict)
 
-  @@unique([categoryId, handlerId])
   @@index([categoryId, isPrimary, activeTo])
   @@map("category_handlers")
 }

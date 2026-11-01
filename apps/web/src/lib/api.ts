@@ -12,6 +12,14 @@ import type {
   HandlerWorkloadResponse,
   ReviewerQueueResponse,
   ManualReviewerAssignmentResponse,
+  NotificationListResponse,
+  AdminOverviewResponse,
+  CategoryReportResponse,
+  HandlerReportResponse,
+  CategoryAdminItem,
+  CategoryAdminListResponse,
+  StaffDirectoryResponse,
+  AuditTrailResponse,
 } from '@sgrs/contracts';
 
 const API_PREFIX = '/api/v1';
@@ -157,6 +165,25 @@ export const api = {
       body: JSON.stringify({ reason }),
     });
   },
+  resolveGrievance(
+    id: string,
+    role: 'HANDLER' | 'REVIEWER',
+    remarks: string,
+  ): Promise<GrievanceDetailResponse> {
+    return request(`/${role.toLowerCase()}/grievances/${id}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ remarks }),
+    });
+  },
+  submitFeedback(
+    id: string,
+    input: { rating: number; comment?: string },
+  ): Promise<GrievanceDetailResponse> {
+    return request(`/student/grievances/${id}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
   manualAssignments(): Promise<ManualReviewerAssignmentResponse> {
     return request('/admin/escalations/manual-assignment');
   },
@@ -167,6 +194,109 @@ export const api = {
     return request(`/admin/escalations/${escalationId}/reviewer`, {
       method: 'PATCH',
       body: JSON.stringify({ reviewerId }),
+    });
+  },
+  notifications(
+    input: { page?: number; pageSize?: number } = {},
+  ): Promise<NotificationListResponse> {
+    const params = new URLSearchParams({
+      page: String(input.page ?? 1),
+      pageSize: String(input.pageSize ?? 25),
+    });
+    return request(`/notifications?${params.toString()}`);
+  },
+  markNotificationRead(id: string): Promise<void> {
+    return request(`/notifications/${encodeURIComponent(id)}/read`, {
+      method: 'PATCH',
+      body: '{}',
+    });
+  },
+  adminOverview(): Promise<AdminOverviewResponse> {
+    return request('/admin/reports/overview');
+  },
+  managementOverview(): Promise<AdminOverviewResponse> {
+    return request('/management/reports/overview');
+  },
+  categoryReport(
+    from: string,
+    to: string,
+    audience: 'admin' | 'management',
+  ): Promise<CategoryReportResponse> {
+    const params = new URLSearchParams({ from, to });
+    return request(`/${audience}/reports/categories?${params.toString()}`);
+  },
+  handlerReport(from: string, to: string): Promise<HandlerReportResponse> {
+    const params = new URLSearchParams({ from, to });
+    return request(`/admin/reports/handlers?${params.toString()}`);
+  },
+  auditTrail(
+    grievanceId: string,
+    input: { page?: number; pageSize?: number } = {},
+  ): Promise<AuditTrailResponse> {
+    const params = new URLSearchParams({
+      page: String(input.page ?? 1),
+      pageSize: String(input.pageSize ?? 25),
+    });
+    return request(
+      `/admin/grievances/${encodeURIComponent(grievanceId)}/audit?${params.toString()}`,
+    );
+  },
+  adminCategories(): Promise<CategoryAdminListResponse> {
+    return request('/admin/categories');
+  },
+  adminDirectory(query?: string): Promise<StaffDirectoryResponse> {
+    const params = query ? `?q=${encodeURIComponent(query)}` : '';
+    return request(`/admin/directory${params}`);
+  },
+  createCategory(input: {
+    name: string;
+    description?: string | null;
+    slaHours: number;
+  }): Promise<{ data: CategoryAdminItem }> {
+    return request('/admin/categories', { method: 'POST', body: JSON.stringify(input) });
+  },
+  updateCategory(
+    id: string,
+    changes: { name?: string; description?: string | null; isActive?: boolean; slaHours?: number },
+  ): Promise<{ data: CategoryAdminItem }> {
+    return request(`/admin/categories/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    });
+  },
+  addCategoryHandler(
+    id: string,
+    input: { handlerId: string; isPrimary: boolean },
+  ): Promise<{ data: CategoryAdminItem }> {
+    return request(`/admin/categories/${encodeURIComponent(id)}/handlers`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  endCategoryHandler(id: string, mappingId: string): Promise<{ data: CategoryAdminItem }> {
+    return request(
+      `/admin/categories/${encodeURIComponent(id)}/handlers/${encodeURIComponent(mappingId)}`,
+      { method: 'DELETE' },
+    );
+  },
+  setPrimaryHandler(id: string, mappingId: string): Promise<{ data: CategoryAdminItem }> {
+    return request(
+      `/admin/categories/${encodeURIComponent(id)}/handlers/${encodeURIComponent(mappingId)}/primary`,
+      { method: 'PATCH', body: '{}' },
+    );
+  },
+  saveEscalationRule(
+    id: string,
+    input: {
+      level: number;
+      reviewerId: string | null;
+      timelineHours: number | null;
+      isActive: boolean;
+    },
+  ): Promise<{ data: CategoryAdminItem }> {
+    return request(`/admin/categories/${encodeURIComponent(id)}/escalation-rules`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
     });
   },
   listCategories(): Promise<GrievanceCategoryListResponse> {

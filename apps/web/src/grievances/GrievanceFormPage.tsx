@@ -8,6 +8,7 @@ import type {
 } from '@sgrs/contracts';
 import { ApiClientError, api } from '../lib/api.js';
 import { WorkspaceLayout } from './WorkspaceLayout.js';
+import { ScrollReveal } from '../visual/ScrollReveal.js';
 
 interface FormValues {
   title: string;
@@ -87,17 +88,22 @@ export function GrievanceFormPage(): ReactNode {
 
   useEffect(() => {
     let active = true;
-    const detailRequest = grievanceId ? api.getGrievance(grievanceId) : api.createGrievanceDraft();
+    const detailRequest = grievanceId ? api.getGrievance(grievanceId) : Promise.resolve(null);
     Promise.all([detailRequest, api.listCategories()])
       .then(([detailResponse, categoryResponse]) => {
         if (!active) return;
-        const detail = detailResponse.data;
-        if (!['DRAFT', 'PENDING_MANUAL_ASSIGNMENT'].includes(detail.status)) {
-          navigate('/app/student/grievances/' + detail.id, { replace: true });
-          return;
+        if (detailResponse) {
+          const detail = detailResponse.data;
+          if (!['DRAFT', 'PENDING_MANUAL_ASSIGNMENT'].includes(detail.status)) {
+            navigate('/app/student/grievances/' + detail.id, { replace: true });
+            return;
+          }
+          setGrievance(detail);
+          setValues(initialForm(detail));
+        } else {
+          setGrievance(null);
+          setValues(emptyForm);
         }
-        setGrievance(detail);
-        setValues(initialForm(detail));
         setCategories(categoryResponse.data.items);
       })
       .catch((caught: unknown) => {
@@ -118,20 +124,24 @@ export function GrievanceFormPage(): ReactNode {
   }, [grievanceId, navigate]);
 
   const pendingManual = grievance?.status === 'PENDING_MANUAL_ASSIGNMENT';
-  const editable = Boolean(grievance && (grievance.status === 'DRAFT' || pendingManual));
+  const editable =
+    !grievanceId || Boolean(grievance && (grievance.status === 'DRAFT' || pendingManual));
+
+  const ensureDraft = useCallback(async (): Promise<GrievanceDetail> => {
+    if (grievance) return grievance;
+    const response = await api.createGrievanceDraft();
+    setGrievance(response.data);
+    return response.data;
+  }, [grievance]);
 
   const patchDraft = useCallback(async (): Promise<GrievanceDetail | null> => {
-    if (!grievance) return null;
-    const response = await api.updateGrievanceDraft(
-      grievance.id,
-      grievance.version,
-      asPatch(values),
-    );
+    const current = await ensureDraft();
+    const response = await api.updateGrievanceDraft(current.id, current.version, asPatch(values));
     setGrievance(response.data);
     setValues(initialForm(response.data));
     setFieldErrors({});
     return response.data;
-  }, [grievance, values]);
+  }, [ensureDraft, values]);
 
   async function saveDraft(): Promise<void> {
     setBusy(true);
@@ -156,17 +166,18 @@ export function GrievanceFormPage(): ReactNode {
     event.preventDefault();
     const form = event.currentTarget;
     const input = form.elements.namedItem('evidenceFiles');
-    if (!(input instanceof HTMLInputElement) || !input.files?.length || !grievance) return;
+    if (!(input instanceof HTMLInputElement) || !input.files?.length) return;
     const files = Array.from(input.files);
     setBusy(true);
     setError(null);
     setMessage(null);
     setRejectedFiles([]);
     try {
-      const response = await api.uploadEvidence(grievance.id, files);
+      const current = await ensureDraft();
+      const response = await api.uploadEvidence(current.id, files);
       setRejectedFiles(response.data.rejectedFiles);
       if (response.data.items.length) {
-        const refreshed = await api.getGrievance(grievance.id);
+        const refreshed = await api.getGrievance(current.id);
         setGrievance(refreshed.data);
         setMessage(
           response.data.items.length +
@@ -190,7 +201,6 @@ export function GrievanceFormPage(): ReactNode {
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!event.currentTarget.reportValidity()) return;
-    if (!grievance) return;
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -238,14 +248,14 @@ export function GrievanceFormPage(): ReactNode {
     >
       {loading ? (
         <p className="case-loading" role="status">
-          Preparing your secure draft…
+          Preparing your grievance form…
         </p>
       ) : error && !grievance ? (
         <p className="notice notice--error" role="alert">
           {error}
         </p>
-      ) : grievance && editable ? (
-        <div className="grievance-editor">
+      ) : editable ? (
+        <ScrollReveal as="div" className="grievance-editor">
           <div className="grievance-editor__form-column">
             <form className="grievance-form" onSubmit={submit} noValidate>
               <div className="form-section-heading">
@@ -392,7 +402,7 @@ export function GrievanceFormPage(): ReactNode {
                 </div>
               </div>
 
-              {grievance.status === 'DRAFT' && (
+              {(!grievance || grievance.status === 'DRAFT') && (
                 <div className="grievance-form__actions">
                   <button
                     type="button"
@@ -455,7 +465,7 @@ export function GrievanceFormPage(): ReactNode {
                 ))}
               </div>
             )}
-            {grievance.evidence.length > 0 && (
+            {grievance && grievance.evidence.length > 0 && (
               <ul className="evidence-list" aria-label="Uploaded evidence">
                 {grievance.evidence.map((file) => (
                   <li key={file.id}>
@@ -466,7 +476,7 @@ export function GrievanceFormPage(): ReactNode {
               </ul>
             )}
           </aside>
-        </div>
+        </ScrollReveal>
       ) : null}
     </WorkspaceLayout>
   );

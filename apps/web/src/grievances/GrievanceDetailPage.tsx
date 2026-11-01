@@ -4,6 +4,9 @@ import type { GrievanceDetail } from '@sgrs/contracts';
 import { useAuth } from '../auth/AuthProvider.js';
 import { ApiClientError, api } from '../lib/api.js';
 import { WorkspaceLayout } from './WorkspaceLayout.js';
+import { ResolutionPanel } from './ResolutionPanel.js';
+import { AuditTrailPanel } from '../administration/AuditTrailPanel.js';
+import { ScrollReveal } from '../visual/ScrollReveal.js';
 
 const statusLabels: Record<string, string> = {
   DRAFT: 'Draft',
@@ -137,7 +140,15 @@ export function GrievanceDetailPage(): ReactNode {
         <>
           <Link
             className="button button--quiet"
-            to={user?.role === 'HANDLER' ? '/app/handler' : '/app/student'}
+            to={
+              user?.role === 'HANDLER'
+                ? '/app/handler'
+                : user?.role === 'REVIEWER'
+                  ? '/app/reviewer'
+                  : user?.role === 'ADMINISTRATOR'
+                    ? '/app/admin'
+                    : '/app/student'
+            }
           >
             Back to cases
           </Link>
@@ -167,7 +178,7 @@ export function GrievanceDetailPage(): ReactNode {
               {error}
             </p>
           )}
-          <section className="case-detail-hero">
+          <ScrollReveal as="section" className="case-detail-hero" distance={30}>
             <div>
               <span className={'status-pill status-pill--' + grievance.status.toLowerCase()}>
                 {statusLabels[grievance.status] ?? grievance.status}
@@ -198,10 +209,15 @@ export function GrievanceDetailPage(): ReactNode {
                 </div>
               )}
             </dl>
-          </section>
+          </ScrollReveal>
 
           <div className="case-detail-grid">
-            <section className="case-detail-panel" aria-labelledby="case-details-heading">
+            <ScrollReveal
+              as="section"
+              className="case-detail-panel"
+              aria-labelledby="case-details-heading"
+              distance={28}
+            >
               <p className="eyebrow">THE REPORT</p>
               <h2 id="case-details-heading">Case details</h2>
               <dl className="case-facts">
@@ -309,9 +325,13 @@ export function GrievanceDetailPage(): ReactNode {
                   {busy ? 'Withdrawing…' : 'Withdraw grievance'}
                 </button>
               )}
-            </section>
+            </ScrollReveal>
 
-            <aside className="case-detail-panel" aria-labelledby="evidence-heading">
+            <ScrollReveal
+              as="aside"
+              className="case-detail-panel"
+              aria-labelledby="evidence-heading"
+            >
               <p className="eyebrow">ATTACHMENTS</p>
               <h2 id="evidence-heading">Supporting evidence</h2>
               {grievance.evidence.length ? (
@@ -326,9 +346,10 @@ export function GrievanceDetailPage(): ReactNode {
               ) : (
                 <p>No evidence attached.</p>
               )}
-            </aside>
+            </ScrollReveal>
 
-            <section
+            <ScrollReveal
+              as="section"
               className="case-detail-panel case-detail-panel--wide"
               aria-labelledby="history-heading"
             >
@@ -356,8 +377,9 @@ export function GrievanceDetailPage(): ReactNode {
               ) : (
                 <p>Status events will appear here as your case moves through the process.</p>
               )}
-            </section>
-            <section
+            </ScrollReveal>
+            <ScrollReveal
+              as="section"
               className="case-detail-panel case-detail-panel--wide"
               aria-labelledby="messages-heading"
             >
@@ -506,8 +528,15 @@ export function GrievanceDetailPage(): ReactNode {
                   )}
                 </div>
               )}
-            </section>
+            </ScrollReveal>
           </div>
+          <ResolutionPanel
+            grievance={grievance}
+            role={user?.role ?? 'STUDENT'}
+            userId={user?.id}
+            onUpdated={setGrievance}
+          />
+          {user?.role === 'ADMINISTRATOR' && <AuditTrailPanel grievanceId={grievance.id} />}
         </>
       ) : null}
     </WorkspaceLayout>

@@ -112,6 +112,23 @@ export interface GrievanceRepository {
     },
   ): Promise<GrievanceDetail>;
   withdraw(actor: GrievanceActor, grievanceId: string, requestId: string): Promise<GrievanceDetail>;
+  resolveGrievance(
+    actor: GrievanceActor,
+    grievanceId: string,
+    remarks: string,
+    resolvedAt: Date,
+    feedbackDeadline: Date,
+    requestId: string,
+  ): Promise<GrievanceDetail>;
+  submitFeedback(
+    actor: GrievanceActor,
+    grievanceId: string,
+    rating: number,
+    comment: string | null,
+    submittedAt: Date,
+    requestId: string,
+  ): Promise<GrievanceDetail>;
+  closeExpiredResolutionCycles(now: Date, batchSize: number, jobRunId: string): Promise<number>;
   setHandlerUnderReview(
     actor: GrievanceActor,
     grievanceId: string,

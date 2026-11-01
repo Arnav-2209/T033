@@ -11,6 +11,10 @@ import { GrievanceDetailPage } from './grievances/GrievanceDetailPage.js';
 import { SubmissionConfirmationPage } from './grievances/SubmissionConfirmationPage.js';
 import { HandlerQueuePage } from './grievances/HandlerQueuePage.js';
 import { ReviewerQueuePage } from './grievances/ReviewerQueuePage.js';
+import { NotificationsPage } from './notifications/NotificationsPage.js';
+import { ReportsPage } from './reports/ReportsPage.js';
+import { CategoryManagementPage } from './administration/CategoryManagementPage.js';
+import { PublicLandingPage } from './pages/PublicLandingPage.js';
 
 function AppRoutes(): ReactNode {
   const { user, loading } = useAuth();
@@ -21,8 +25,10 @@ function AppRoutes(): ReactNode {
         element={
           loading ? (
             <main className="page-wait">Preparing SGRS…</main>
+          ) : user ? (
+            <Navigate to={roleRoutes[user.role]} replace />
           ) : (
-            <Navigate to={user ? roleRoutes[user.role] : '/login'} replace />
+            <PublicLandingPage />
           )
         }
       />
@@ -43,6 +49,14 @@ function AppRoutes(): ReactNode {
         element={
           <RequireRole>
             <AppIndexRedirect />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/app/notifications"
+        element={
+          <RequireRole roles={['STUDENT', 'HANDLER', 'REVIEWER', 'ADMINISTRATOR']}>
+            <NotificationsPage />
           </RequireRole>
         }
       />
@@ -119,6 +133,14 @@ function AppRoutes(): ReactNode {
         }
       />
       <Route
+        path="/app/admin/grievances/:grievanceId"
+        element={
+          <RequireRole roles={['ADMINISTRATOR']}>
+            <GrievanceDetailPage />
+          </RequireRole>
+        }
+      />
+      <Route
         path="/app/admin"
         element={
           <RequireRole roles={['ADMINISTRATOR']}>
@@ -135,10 +157,34 @@ function AppRoutes(): ReactNode {
         }
       />
       <Route
+        path="/app/admin/reports"
+        element={
+          <RequireRole roles={['ADMINISTRATOR']}>
+            <ReportsPage role="ADMINISTRATOR" />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/app/admin/categories"
+        element={
+          <RequireRole roles={['ADMINISTRATOR']}>
+            <CategoryManagementPage />
+          </RequireRole>
+        }
+      />
+      <Route
         path="/app/management"
         element={
           <RequireRole roles={['MANAGEMENT']}>
             <RoleHomePage role="MANAGEMENT" />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/app/management/reports"
+        element={
+          <RequireRole roles={['MANAGEMENT']}>
+            <ReportsPage role="MANAGEMENT" />
           </RequireRole>
         }
       />

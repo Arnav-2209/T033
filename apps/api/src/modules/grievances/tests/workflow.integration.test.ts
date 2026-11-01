@@ -1,16 +1,20 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import { requireIsolatedTestDatabase } from '../../../testing/require-isolated-test-database.js';
 import { loadEnvironment } from '../../../config/env.js';
 import { buildApp } from '../../../app.js';
 import { createPrismaClient } from '../../../infrastructure/database/client.js';
 import { PrismaAuthRepository } from '../../../infrastructure/repositories/prisma-auth-repository.js';
 import { PrismaGrievanceRepository } from '../../../infrastructure/repositories/prisma-grievance-repository.js';
+import { ResolutionService } from '../application/resolution-service.js';
 import { LocalEvidenceStorage } from '../../../infrastructure/storage/local-evidence-storage.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const environment = loadEnvironment();
+if (!environment.DATABASE_URL) throw new Error('DATABASE_URL is required for integration tests.');
+requireIsolatedTestDatabase(environment.DATABASE_URL);
 if (!environment.DATABASE_URL || !process.env.SGRS_SEED_PASSWORD)
   throw new Error('Integration database and seeded demo password are required.');
 const prisma = createPrismaClient(environment.DATABASE_URL);
@@ -83,7 +87,7 @@ describe('Phase 4 handler and reviewer workflow', () => {
       headers: headers(student),
       payload: {
         version: draft.version,
-        title: `Phase 4 workflow ${crypto.randomUUID()}`,
+        title: 'Handler workflow test concern',
         description: 'A case used to verify the investigation workflow.',
         categoryId: hostel.id,
         incidentDate: new Date().toISOString().slice(0, 10),
@@ -306,5 +310,234 @@ describe('Phase 4 handler and reviewer workflow', () => {
     expect(
       await prisma.notificationOutbox.count({ where: { notification: { grievanceId: draft.id } } }),
     ).toBeGreaterThanOrEqual(4);
+
+    const reviewerBeforeHandling = await app.inject({
+      method: 'POST',
+      url: `/api/v1/reviewer/grievances/${draft.id}/resolve`,
+      headers: headers(reviewer),
+      payload: { remarks: 'A reviewer cannot resolve before beginning assigned handling.' },
+    });
+    expect(reviewerBeforeHandling.statusCode).toBe(404);
+
+    const reviewerStartedSecondLevel = await app.inject({
+      method: 'POST',
+      url: `/api/v1/reviewer/grievances/${draft.id}/escalations/2/start`,
+      headers: headers(reviewer),
+    });
+    expect(reviewerStartedSecondLevel.statusCode).toBe(200);
+
+    const handlerInvalidState = await app.inject({
+      method: 'POST',
+      url: `/api/v1/handler/grievances/${draft.id}/resolve`,
+      headers: headers(handler),
+      payload: { remarks: 'The handler cannot resolve while the case is escalated.' },
+    });
+    expect(handlerInvalidState.statusCode).toBe(409);
+
+    const blankResolution = await app.inject({
+      method: 'POST',
+      url: `/api/v1/reviewer/grievances/${draft.id}/resolve`,
+      headers: headers(reviewer),
+      payload: { remarks: '   ' },
+    });
+    expect(blankResolution.statusCode).toBe(400);
+    expect(blankResolution.json().error.code).toBe('REMARKS_REQUIRED');
+
+    const forbiddenResolution = await app.inject({
+      method: 'POST',
+      url: `/api/v1/handler/grievances/${draft.id}/resolve`,
+      headers: headers(management),
+      payload: { remarks: 'Management cannot resolve individual cases.' },
+    });
+    expect(forbiddenResolution.statusCode).toBe(403);
+
+    const assignedReviewerAccount = await prisma.user.findUniqueOrThrow({
+      where: { email: 'hostel.committee@staff.demo.sgrs.local' },
+      select: { passwordHash: true },
+    });
+    const unassignedReviewerAccount = await prisma.user.upsert({
+      where: { email: 'phase5.unassigned.reviewer@staff.demo.sgrs.local' },
+      create: {
+        email: 'phase5.unassigned.reviewer@staff.demo.sgrs.local',
+        name: 'Phase 5 Unassigned Reviewer',
+        passwordHash: assignedReviewerAccount.passwordHash,
+        role: 'REVIEWER',
+      },
+      update: { isActive: true, passwordHash: assignedReviewerAccount.passwordHash },
+      select: { email: true },
+    });
+    const unassignedReviewer = await signIn(unassignedReviewerAccount.email);
+    const outOfScopeResolution = await app.inject({
+      method: 'POST',
+      url: `/api/v1/reviewer/grievances/${draft.id}/resolve`,
+      headers: headers(unassignedReviewer),
+      payload: { remarks: 'This reviewer is not assigned to the escalation.' },
+    });
+    expect(outOfScopeResolution.statusCode).toBe(404);
+
+    const resolved = await app.inject({
+      method: 'POST',
+      url: `/api/v1/reviewer/grievances/${draft.id}/resolve`,
+      headers: headers(reviewer),
+      payload: {
+        remarks: 'The committee reviewed the submitted evidence and directed corrective action.',
+      },
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(resolved.json().data.status).toBe('RESOLVED');
+    expect(resolved.json().data.resolutionCycles).toHaveLength(1);
+    expect(
+      await prisma.escalation.findFirstOrThrow({
+        where: { grievanceId: draft.id, level: 2 },
+        select: { state: true, completedAt: true },
+      }),
+    ).toMatchObject({ state: 'COMPLETED', completedAt: expect.any(Date) });
+    const cycle = resolved.json().data.resolutionCycles[0];
+    expect(new Date(cycle.feedbackDeadline).getTime() - new Date(cycle.resolvedAt).getTime()).toBe(
+      3 * 24 * 60 * 60 * 1000,
+    );
+    expect(
+      await prisma.notificationOutbox.count({
+        where: { notification: { grievanceId: draft.id, type: 'RESOLUTION' } },
+      }),
+    ).toBe(1);
+
+    const seededStudent = await prisma.user.findUniqueOrThrow({
+      where: { email: 'aditi.rao@student.demo.sgrs.local' },
+      select: { passwordHash: true },
+    });
+    const outsider = await prisma.user.upsert({
+      where: { email: 'phase5.outsider@student.demo.sgrs.local' },
+      create: {
+        email: 'phase5.outsider@student.demo.sgrs.local',
+        name: 'Phase 5 Ownership Test Student',
+        passwordHash: seededStudent.passwordHash,
+        role: 'STUDENT',
+      },
+      update: { isActive: true, passwordHash: seededStudent.passwordHash },
+      select: { email: true },
+    });
+    const outsiderSession = await signIn(outsider.email);
+    const otherStudentFeedback = await app.inject({
+      method: 'POST',
+      url: `/api/v1/student/grievances/${draft.id}/feedback`,
+      headers: headers(outsiderSession),
+      payload: { rating: 5 },
+    });
+    expect(otherStudentFeedback.statusCode).toBe(404);
+
+    const invalidRating = await app.inject({
+      method: 'POST',
+      url: `/api/v1/student/grievances/${draft.id}/feedback`,
+      headers: headers(student),
+      payload: { rating: 6 },
+    });
+    expect(invalidRating.statusCode).toBe(400);
+
+    const feedback = await app.inject({
+      method: 'POST',
+      url: `/api/v1/student/grievances/${draft.id}/feedback`,
+      headers: headers(student),
+      payload: { rating: 5, comment: 'The steps taken addressed the report.' },
+    });
+    expect(feedback.statusCode).toBe(200);
+    expect(feedback.json().data.status).toBe('CLOSED');
+    expect(feedback.json().data.resolutionCycles[0].feedback.rating).toBe(5);
+    expect(
+      await prisma.notificationOutbox.count({
+        where: { notification: { grievanceId: draft.id, type: 'CLOSURE' } },
+      }),
+    ).toBe(1);
+    const duplicateFeedback = await app.inject({
+      method: 'POST',
+      url: `/api/v1/student/grievances/${draft.id}/feedback`,
+      headers: headers(student),
+      payload: { rating: 4 },
+    });
+    expect(duplicateFeedback.statusCode).toBe(409);
+    expect(
+      await prisma.auditLog.count({
+        where: {
+          grievanceId: draft.id,
+          action: { in: ['GRIEVANCE_RESOLVED', 'STUDENT_FEEDBACK_SUBMITTED', 'GRIEVANCE_CLOSED'] },
+        },
+      }),
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      await prisma.notificationOutbox.count({ where: { notification: { grievanceId: draft.id } } }),
+    ).toBeGreaterThanOrEqual(6);
+
+    const timeoutDraftResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/student/grievances',
+      headers: headers(student),
+    });
+    const timeoutDraft = timeoutDraftResponse.json().data;
+    const timeoutDraftUpdated = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/student/grievances/${timeoutDraft.id}`,
+      headers: headers(student),
+      payload: {
+        version: timeoutDraft.version,
+        title: 'Feedback timeout test concern',
+        description: 'A case used to verify automatic closure after the feedback period.',
+        categoryId: hostel.id,
+        incidentDate: new Date().toISOString().slice(0, 10),
+      },
+    });
+    expect(timeoutDraftUpdated.statusCode).toBe(200);
+    const timeoutSubmitted = await app.inject({
+      method: 'POST',
+      url: `/api/v1/student/grievances/${timeoutDraft.id}/submit`,
+      headers: { ...headers(student), 'idempotency-key': crypto.randomUUID() },
+    });
+    expect(timeoutSubmitted.json().data.status).toBe('ASSIGNED');
+    const timeoutReview = await app.inject({
+      method: 'POST',
+      url: `/api/v1/handler/grievances/${timeoutDraft.id}/start-review`,
+      headers: headers(handler),
+    });
+    expect(timeoutReview.statusCode).toBe(200);
+    const timeoutResolved = await app.inject({
+      method: 'POST',
+      url: `/api/v1/handler/grievances/${timeoutDraft.id}/resolve`,
+      headers: headers(handler),
+      payload: { remarks: 'The reported maintenance issue has been addressed.' },
+    });
+    expect(timeoutResolved.statusCode).toBe(200);
+    const pastDeadline = new Date(Date.now() - 1_000);
+    await prisma.resolutionCycle.updateMany({
+      where: { grievanceId: timeoutDraft.id, isCurrent: true },
+      data: {
+        resolvedAt: new Date(pastDeadline.getTime() - 3 * 24 * 60 * 60 * 1_000),
+        feedbackDeadline: pastDeadline,
+      },
+    });
+    const lateFeedback = await app.inject({
+      method: 'POST',
+      url: `/api/v1/student/grievances/${timeoutDraft.id}/feedback`,
+      headers: headers(student),
+      payload: { rating: 4 },
+    });
+    expect(lateFeedback.statusCode).toBe(409);
+    expect(lateFeedback.json().error.code).toBe('WINDOW_EXPIRED');
+    const resolutionService = new ResolutionService(new PrismaGrievanceRepository(prisma));
+    const concurrentClosures = await Promise.all([
+      resolutionService.closeExpiredFeedback(new Date(), 100, crypto.randomUUID()),
+      resolutionService.closeExpiredFeedback(new Date(), 100, crypto.randomUUID()),
+    ]);
+    expect(concurrentClosures.reduce((sum, count) => sum + count, 0)).toBe(1);
+    expect(await resolutionService.closeExpiredFeedback(new Date())).toBe(0);
+    expect(
+      await prisma.grievance.findUniqueOrThrow({
+        where: { id: timeoutDraft.id },
+        select: { status: true },
+      }),
+    ).toEqual({ status: 'CLOSED' });
+    expect(
+      await prisma.auditLog.count({
+        where: { grievanceId: timeoutDraft.id, action: 'GRIEVANCE_CLOSED' },
+      }),
+    ).toBe(1);
   });
 });

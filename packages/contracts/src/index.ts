@@ -68,6 +68,28 @@ export interface GrievanceStatusEvent {
   publicNote: string | null;
 }
 
+export interface FeedbackItem {
+  id: string;
+  studentId: string;
+  rating: number;
+  comment: string | null;
+  submittedAt: string;
+}
+
+export interface ResolutionCycleItem {
+  id: string;
+  cycleNumber: number;
+  resolvedById: string;
+  resolvedByName: string;
+  remarks: string;
+  resolvedAt: string;
+  feedbackDeadline: string;
+  closedAt: string | null;
+  reopenDeadline: string | null;
+  isCurrent: boolean;
+  feedback: FeedbackItem | null;
+}
+
 export const caseMessageTypes = [
   'INFO_REQUEST',
   'STUDENT_RESPONSE',
@@ -118,6 +140,7 @@ export interface GrievanceSummary {
   id: string;
   caseNumber: string | null;
   title: string | null;
+  hasDraftContent: boolean;
   categoryId: string | null;
   categoryName: string | null;
   incidentDate: string | null;
@@ -140,6 +163,7 @@ export interface GrievanceDetail extends GrievanceSummary {
   statusHistory: GrievanceStatusEvent[];
   messages: CaseMessageItem[];
   escalationLevels: EscalationLevelItem[];
+  resolutionCycles: ResolutionCycleItem[];
 }
 
 export interface ReviewerQueueResponse {
@@ -162,6 +186,125 @@ export interface HandlerWorkloadResponse {
     assigned: number;
     overdue: number;
     byStatus: Partial<Record<GrievanceStatus, number>>;
+  };
+}
+
+export interface NotificationItem {
+  id: string;
+  grievanceId: string | null;
+  type: string;
+  title: string;
+  body: string | null;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface NotificationListResponse {
+  data: {
+    items: NotificationItem[];
+    page: number;
+    pageSize: number;
+    total: number;
+    unreadCount: number;
+  };
+}
+
+export interface CategoryAdminItem {
+  id: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  slaHours: number;
+  policyVersion: number;
+  handlers: Array<{
+    id: string;
+    handlerId: string;
+    handlerName: string;
+    handlerEmail: string;
+    isPrimary: boolean;
+    activeFrom: string;
+  }>;
+  escalationRules: Array<{
+    id: string;
+    level: number;
+    reviewerId: string | null;
+    reviewerName: string | null;
+    timelineHours: number | null;
+    isActive: boolean;
+  }>;
+}
+
+export interface CategoryAdminListResponse {
+  data: { items: CategoryAdminItem[] };
+}
+
+export interface StaffDirectoryItem {
+  id: string;
+  name: string;
+  email: string;
+  role: Extract<UserRole, 'HANDLER' | 'REVIEWER'>;
+  departmentName: string | null;
+  isActive: boolean;
+  categories: string[];
+}
+
+export interface StaffDirectoryResponse {
+  data: { items: StaffDirectoryItem[] };
+}
+
+export interface AdminOverviewResponse {
+  data: {
+    totalCases: number;
+    openCases: number;
+    overdueCases: number;
+    byStatus: Partial<Record<GrievanceStatus, number>>;
+  };
+}
+
+export interface CategoryReportResponse {
+  data: {
+    from: string;
+    to: string;
+    items: Array<{
+      categoryId: string | null;
+      categoryName: string;
+      total: number;
+      byStatus: Partial<Record<GrievanceStatus, number>>;
+    }>;
+  };
+}
+
+export interface HandlerReportResponse {
+  data: {
+    from: string;
+    to: string;
+    items: Array<{
+      handlerId: string;
+      handlerName: string;
+      activeAssignments: number;
+      resolvedCount: number;
+      averageHoursToFirstResolution: number | null;
+    }>;
+  };
+}
+
+export interface AuditEventItem {
+  id: string;
+  actorName: string | null;
+  actorRole: UserRole | null;
+  action: string;
+  details: unknown;
+  source: string;
+  occurredAt: string;
+  requestId: string | null;
+}
+
+export interface AuditTrailResponse {
+  data: {
+    items: AuditEventItem[];
+    page: number;
+    pageSize: number;
+    total: number;
   };
 }
 

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { requireIsolatedTestDatabase } from '../../../testing/require-isolated-test-database.js';
 import { loadEnvironment } from '../../../config/env.js';
 import { createPrismaClient } from '../../../infrastructure/database/client.js';
 import { PrismaAuthRepository } from '../../../infrastructure/repositories/prisma-auth-repository.js';
@@ -7,6 +8,8 @@ import { buildApp } from '../../../app.js';
 import type { FastifyInstance } from 'fastify';
 
 const environment = loadEnvironment();
+if (!environment.DATABASE_URL) throw new Error('DATABASE_URL is required for integration tests.');
+requireIsolatedTestDatabase(environment.DATABASE_URL);
 if (!environment.DATABASE_URL)
   throw new Error('DATABASE_URL is required for auth integration tests.');
 if (!process.env.SGRS_SEED_PASSWORD)
@@ -171,6 +174,31 @@ describe('Phase 2 authentication and account authorization', () => {
         payload: { isActive: true },
       });
     }
+  });
+
+  it('limits repeated authentication attempts by source and normalized account', async () => {
+    const email = `rate-limit-${crypto.randomUUID()}@example.test`;
+    const attempts = [];
+    for (let index = 0; index < 10; index += 1) {
+      attempts.push(
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/auth/login',
+          headers: { origin: environment.WEB_ORIGIN },
+          payload: { email, password: 'incorrect-demo-password' },
+        }),
+      );
+    }
+    expect(attempts.every((response) => response.statusCode === 401)).toBe(true);
+
+    const limited = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      headers: { origin: environment.WEB_ORIGIN },
+      payload: { email, password: 'incorrect-demo-password' },
+    });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json().error.code).toBe('TOO_MANY_REQUESTS');
   });
 
   it('revokes a user’s sessions and audits role changes; it prevents removing the last administrator', async () => {

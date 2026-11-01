@@ -11,8 +11,9 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "pnpm db:generate && pnpm --filter @sgrs/contracts build && pnpm -r --if-present typecheck",
-    "test": "pnpm db:generate && pnpm --filter @sgrs/contracts build && pnpm -r --if-present test",
+    "typecheck": "pnpm db:generate && pnpm --filter @sgrs/contracts build && pnpm -r --if-present typecheck && pnpm exec tsc --noEmit -p tsconfig.e2e.json",
+    "test": "node --env-file-if-exists=.env scripts/test.mjs",
+    "e2e": "node --env-file-if-exists=.env scripts/e2e.mjs",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:generate": "pnpm --filter @sgrs/api prisma:generate",
@@ -22,7 +23,9 @@
     "db:setup": "pnpm db:up && pnpm db:migrate:deploy && pnpm db:seed"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^9.39.0",
+    "@playwright/test": "^1.64.1",
     "@types/node": "^24.10.0",
     "eslint": "^9.39.0",
     "eslint-config-prettier": "^10.1.8",

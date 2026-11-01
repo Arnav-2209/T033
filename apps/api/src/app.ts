@@ -19,13 +19,27 @@ import { EvidenceService } from './modules/grievances/application/evidence-servi
 import { registerGrievanceRoutes } from './modules/grievances/http/routes.js';
 import { CaseWorkflowService } from './modules/grievances/application/case-workflow-service.js';
 import { registerWorkflowRoutes } from './modules/grievances/http/workflow-routes.js';
+import { ResolutionService } from './modules/grievances/application/resolution-service.js';
+import { registerResolutionRoutes } from './modules/grievances/http/resolution-routes.js';
 import type { EvidenceStorage } from './modules/grievances/application/storage.js';
+import { NotificationService } from './modules/notifications/application/notification-service.js';
+import { registerNotificationRoutes } from './modules/notifications/http/routes.js';
+import type { NotificationRepository } from './modules/notifications/application/ports.js';
+import { AdministrationService } from './modules/administration/application/administration-service.js';
+import { registerAdministrationRoutes } from './modules/administration/http/routes.js';
+import type { AdministrationRepository } from './modules/administration/application/ports.js';
+import { ReportService } from './modules/reports/application/report-service.js';
+import { registerReportRoutes } from './modules/reports/http/routes.js';
+import type { ReportRepository } from './modules/reports/application/ports.js';
 
 export interface AppDependencies {
   checkDatabase?: () => Promise<void>;
   authRepository?: AuthRepository;
   grievanceRepository?: GrievanceRepository;
   evidenceStorage?: EvidenceStorage;
+  notificationRepository?: NotificationRepository;
+  administrationRepository?: AdministrationRepository;
+  reportRepository?: ReportRepository;
 }
 
 function getStatusCode(error: unknown): number | undefined {
@@ -53,7 +67,10 @@ export async function buildApp(
     origin: environment.WEB_ORIGIN,
     credentials: true,
   });
-  await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+  await app.register(rateLimit, {
+    max: environment.API_RATE_LIMIT_MAX,
+    timeWindow: environment.API_RATE_LIMIT_WINDOW_SECONDS * 1_000,
+  });
   await registerHealthRoutes(app, dependencies.checkDatabase);
 
   if (dependencies.authRepository) {
@@ -65,6 +82,30 @@ export async function buildApp(
     const userService = new UserService(dependencies.authRepository);
     await registerAuthRoutes(app, authService, environment);
     await registerUserRoutes(app, authService, userService, environment);
+    if (dependencies.notificationRepository) {
+      await registerNotificationRoutes(
+        app,
+        authService,
+        new NotificationService(dependencies.notificationRepository),
+        environment,
+      );
+    }
+    if (dependencies.administrationRepository) {
+      await registerAdministrationRoutes(
+        app,
+        authService,
+        new AdministrationService(dependencies.administrationRepository),
+        environment,
+      );
+    }
+    if (dependencies.reportRepository) {
+      await registerReportRoutes(
+        app,
+        authService,
+        new ReportService(dependencies.reportRepository),
+        environment,
+      );
+    }
     if (dependencies.grievanceRepository && dependencies.evidenceStorage) {
       const grievanceService = new GrievanceService(
         dependencies.grievanceRepository,
@@ -85,6 +126,12 @@ export async function buildApp(
         app,
         authService,
         new CaseWorkflowService(dependencies.grievanceRepository),
+        environment,
+      );
+      await registerResolutionRoutes(
+        app,
+        authService,
+        new ResolutionService(dependencies.grievanceRepository),
         environment,
       );
     }

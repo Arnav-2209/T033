@@ -7,6 +7,7 @@ import type {
   GrievanceEvidence,
   GrievanceListResponse,
   GrievanceSummary,
+  ResolutionCycleItem,
   ReviewerQueueResponse,
   HandlerWorkloadResponse,
   ManualReviewerAssignmentResponse,
@@ -23,6 +24,7 @@ import type {
   ReviewerOption,
 } from '../../modules/grievances/application/ports.js';
 import type { GrievancePatch } from '../../modules/grievances/domain/validation.js';
+import { isWithinFeedbackWindow } from '../../modules/grievances/domain/resolution-policy.js';
 
 const detailInclude = {
   category: { select: { name: true } },
@@ -49,6 +51,13 @@ const detailInclude = {
     orderBy: { level: 'asc' },
     include: { reviewer: { select: { id: true, name: true } } },
   },
+  resolutionCycles: {
+    orderBy: { cycleNumber: 'asc' },
+    include: {
+      resolvedBy: { select: { id: true, name: true } },
+      feedback: true,
+    },
+  },
 } satisfies Prisma.GrievanceInclude;
 
 type DetailRecord = Prisma.GrievanceGetPayload<{ include: typeof detailInclude }>;
@@ -66,6 +75,15 @@ function mapSummary(record: DetailRecord): GrievanceSummary {
     id: record.id,
     caseNumber: record.caseNumber,
     title: record.title,
+    hasDraftContent: Boolean(
+      record.title?.trim() ||
+      record.description?.trim() ||
+      record.categoryId ||
+      record.incidentDate ||
+      record.location?.trim() ||
+      record.priority !== 'NORMAL' ||
+      record.evidence.length,
+    ),
     categoryId: record.categoryId,
     categoryName: record.category?.name ?? null,
     incidentDate: calendarDate(record.incidentDate),
@@ -128,6 +146,27 @@ function mapDetail(record: DetailRecord, actor: GrievanceActor): GrievanceDetail
             createdAt: escalation.createdAt.toISOString(),
             reviewerAssignedAt: iso(escalation.reviewerAssignedAt),
           })),
+    resolutionCycles: record.resolutionCycles.map((cycle): ResolutionCycleItem => ({
+      id: cycle.id,
+      cycleNumber: cycle.cycleNumber,
+      resolvedById: cycle.resolvedBy.id,
+      resolvedByName: cycle.resolvedBy.name,
+      remarks: cycle.remarks,
+      resolvedAt: cycle.resolvedAt.toISOString(),
+      feedbackDeadline: cycle.feedbackDeadline.toISOString(),
+      closedAt: iso(cycle.closedAt),
+      reopenDeadline: iso(cycle.reopenDeadline),
+      isCurrent: cycle.isCurrent,
+      feedback: cycle.feedback
+        ? {
+            id: cycle.feedback.id,
+            studentId: cycle.feedback.studentId,
+            rating: cycle.feedback.rating,
+            comment: cycle.feedback.comment,
+            submittedAt: cycle.feedback.submittedAt.toISOString(),
+          }
+        : null,
+    })),
   };
 }
 
@@ -783,6 +822,298 @@ export class PrismaGrievanceRepository implements GrievanceRepository {
       return tx.grievance.findUniqueOrThrow({ where: { id: updated.id }, include: detailInclude });
     });
     return mapDetail(record, actor);
+  }
+
+  async resolveGrievance(
+    actor: GrievanceActor,
+    grievanceId: string,
+    remarks: string,
+    resolvedAt: Date,
+    feedbackDeadline: Date,
+    requestId: string,
+  ): Promise<GrievanceDetail> {
+    const record = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM grievances WHERE id = ${grievanceId}::uuid FOR UPDATE`;
+      const current = await tx.grievance.findFirst({
+        where: { id: grievanceId, ...visibleWhere(actor) },
+      });
+      if (!current) missing();
+      let activeEscalationId: string | null = null;
+
+      if (actor.role === 'HANDLER') {
+        const assignment = await tx.assignment.findFirst({
+          where: { grievanceId, handlerId: actor.userId, endedAt: null },
+          select: { id: true },
+        });
+        if (!assignment) missing();
+        if (current.status !== 'UNDER_REVIEW') {
+          throw new AppError(
+            409,
+            'INVALID_STATE',
+            'A handler can resolve only a case under review.',
+          );
+        }
+      } else if (actor.role === 'REVIEWER') {
+        const activeReview = await tx.escalation.findFirst({
+          where: {
+            grievanceId,
+            reviewerId: actor.userId,
+            state: 'UNDER_REVIEWER_HANDLING',
+          },
+          select: { id: true },
+        });
+        if (!activeReview) missing();
+        activeEscalationId = activeReview.id;
+        if (current.status !== 'ESCALATED') {
+          throw new AppError(
+            409,
+            'INVALID_STATE',
+            'A reviewer can resolve only an escalated case.',
+          );
+        }
+      } else {
+        throw new AppError(
+          403,
+          'FORBIDDEN',
+          'Only an assigned handler or reviewer can resolve a grievance.',
+        );
+      }
+
+      const previousCycle = await tx.resolutionCycle.findFirst({
+        where: { grievanceId },
+        orderBy: { cycleNumber: 'desc' },
+        select: { cycleNumber: true },
+      });
+      await tx.resolutionCycle.updateMany({
+        where: { grievanceId, isCurrent: true },
+        data: { isCurrent: false },
+      });
+      const cycle = await tx.resolutionCycle.create({
+        data: {
+          grievanceId,
+          cycleNumber: (previousCycle?.cycleNumber ?? 0) + 1,
+          resolvedById: actor.userId,
+          remarks,
+          resolvedAt,
+          feedbackDeadline,
+          isCurrent: true,
+        },
+      });
+      if (activeEscalationId) {
+        await tx.escalation.update({
+          where: { id: activeEscalationId },
+          data: { state: 'COMPLETED', completedAt: resolvedAt },
+        });
+      }
+      await tx.grievance.update({
+        where: { id: grievanceId },
+        data: { status: 'RESOLVED', closedAt: null, version: { increment: 1 } },
+      });
+      await tx.statusHistory.create({
+        data: {
+          grievanceId,
+          previousStatus: current.status,
+          newStatus: 'RESOLVED',
+          actorId: actor.userId,
+          actorRoleSnapshot: actor.role,
+          reason: remarks,
+          publicNote: 'A resolution was recorded. Student feedback is open for three days.',
+          occurredAt: resolvedAt,
+          requestId,
+        },
+      });
+      await tx.auditLog.create({
+        data: auditData({
+          actorId: actor.userId,
+          grievanceId,
+          action: 'GRIEVANCE_RESOLVED',
+          requestId,
+          details: {
+            resolutionCycleId: cycle.id,
+            cycleNumber: cycle.cycleNumber,
+            feedbackDeadline: feedbackDeadline.toISOString(),
+          },
+        }),
+      });
+      await this.createNotification(tx, {
+        recipientId: current.studentId,
+        grievanceId,
+        type: 'RESOLUTION',
+        title: 'Your grievance has been resolved',
+        body: `Resolution remarks are available for ${current.caseNumber ?? 'your grievance'}. Please share feedback within three days.`,
+        idempotencyKey: `m5:resolution:${cycle.id}:student`,
+      });
+      return tx.grievance.findUniqueOrThrow({ where: { id: grievanceId }, include: detailInclude });
+    });
+    return mapDetail(record, actor);
+  }
+
+  async submitFeedback(
+    actor: GrievanceActor,
+    grievanceId: string,
+    rating: number,
+    comment: string | null,
+    submittedAt: Date,
+    requestId: string,
+  ): Promise<GrievanceDetail> {
+    const record = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM grievances WHERE id = ${grievanceId}::uuid FOR UPDATE`;
+      const current = await tx.grievance.findFirst({
+        where: { id: grievanceId, studentId: actor.userId },
+      });
+      if (!current) missing();
+      const cycle = await tx.resolutionCycle.findFirst({
+        where: { grievanceId, isCurrent: true },
+        include: { feedback: { select: { id: true } } },
+      });
+      if (!cycle || current.status !== 'RESOLVED') {
+        throw new AppError(
+          409,
+          'INVALID_STATE',
+          'Feedback is available only for a resolved grievance.',
+        );
+      }
+      if (!isWithinFeedbackWindow(submittedAt, cycle.feedbackDeadline)) {
+        throw new AppError(409, 'WINDOW_EXPIRED', 'The three-day feedback window has expired.');
+      }
+      if (cycle.feedback) {
+        throw new AppError(
+          409,
+          'FEEDBACK_ALREADY_SUBMITTED',
+          'Feedback was already submitted for this resolution.',
+        );
+      }
+      const feedback = await tx.feedback.create({
+        data: {
+          resolutionCycleId: cycle.id,
+          studentId: actor.userId,
+          rating,
+          comment,
+          submittedAt,
+        },
+      });
+      await tx.resolutionCycle.update({ where: { id: cycle.id }, data: { closedAt: submittedAt } });
+      await tx.grievance.update({
+        where: { id: grievanceId },
+        data: { status: 'CLOSED', closedAt: submittedAt, version: { increment: 1 } },
+      });
+      await tx.statusHistory.create({
+        data: {
+          grievanceId,
+          previousStatus: 'RESOLVED',
+          newStatus: 'CLOSED',
+          actorId: actor.userId,
+          actorRoleSnapshot: 'STUDENT',
+          publicNote: 'The student submitted feedback and the grievance was closed.',
+          occurredAt: submittedAt,
+          requestId,
+        },
+      });
+      await tx.auditLog.create({
+        data: auditData({
+          actorId: actor.userId,
+          grievanceId,
+          action: 'STUDENT_FEEDBACK_SUBMITTED',
+          requestId,
+          details: { feedbackId: feedback.id, resolutionCycleId: cycle.id, rating },
+        }),
+      });
+      await tx.auditLog.create({
+        data: auditData({
+          actorId: actor.userId,
+          grievanceId,
+          action: 'GRIEVANCE_CLOSED',
+          requestId,
+          details: { resolutionCycleId: cycle.id, closureReason: 'STUDENT_FEEDBACK' },
+        }),
+      });
+      await this.createNotification(tx, {
+        recipientId: actor.userId,
+        grievanceId,
+        type: 'CLOSURE',
+        title: 'Grievance closed',
+        body: `Your feedback was recorded and ${current.caseNumber ?? 'your grievance'} is now closed.`,
+        idempotencyKey: `m5:closure:${cycle.id}:feedback`,
+      });
+      return tx.grievance.findUniqueOrThrow({ where: { id: grievanceId }, include: detailInclude });
+    });
+    return mapDetail(record, actor);
+  }
+
+  async closeExpiredResolutionCycles(
+    now: Date,
+    batchSize: number,
+    jobRunId: string,
+  ): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const eligible = await tx.$queryRaw<Array<{ grievance_id: string; cycle_id: string }>>`
+        SELECT g.id AS grievance_id, rc.id AS cycle_id
+        FROM grievances g
+        JOIN resolution_cycles rc ON rc.grievance_id = g.id
+        LEFT JOIN feedback f ON f.resolution_cycle_id = rc.id
+        WHERE g.status = 'RESOLVED'::"GrievanceStatus"
+          AND rc.is_current = TRUE
+          AND rc.closed_at IS NULL
+          AND rc.feedback_deadline < ${now}
+          AND f.id IS NULL
+        ORDER BY rc.feedback_deadline ASC, g.id ASC
+        LIMIT ${batchSize}
+        FOR UPDATE OF g SKIP LOCKED
+      `;
+      for (const item of eligible) {
+        const grievance = await tx.grievance.findUniqueOrThrow({
+          where: { id: item.grievance_id },
+          select: { id: true, caseNumber: true, studentId: true, status: true },
+        });
+        const cycle = await tx.resolutionCycle.findUniqueOrThrow({
+          where: { id: item.cycle_id },
+          select: { id: true, cycleNumber: true },
+        });
+        if (grievance.status !== 'RESOLVED') continue;
+        await tx.resolutionCycle.update({ where: { id: cycle.id }, data: { closedAt: now } });
+        await tx.grievance.update({
+          where: { id: grievance.id },
+          data: { status: 'CLOSED', closedAt: now, version: { increment: 1 } },
+        });
+        await tx.statusHistory.create({
+          data: {
+            grievanceId: grievance.id,
+            previousStatus: 'RESOLVED',
+            newStatus: 'CLOSED',
+            publicNote:
+              'The grievance was automatically closed after the three-day feedback window.',
+            occurredAt: now,
+            requestId: jobRunId,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId: null,
+            entityType: 'GRIEVANCE',
+            entityId: grievance.id,
+            grievanceId: grievance.id,
+            action: 'GRIEVANCE_CLOSED',
+            details: {
+              resolutionCycleId: cycle.id,
+              cycleNumber: cycle.cycleNumber,
+              closureReason: 'FEEDBACK_TIMEOUT',
+            },
+            occurredAt: now,
+            requestId: jobRunId,
+            source: 'WORKER',
+          },
+        });
+        await this.createNotification(tx, {
+          recipientId: grievance.studentId,
+          grievanceId: grievance.id,
+          type: 'CLOSURE',
+          title: 'Grievance closed',
+          body: `${grievance.caseNumber ?? 'Your grievance'} was closed because the feedback window expired.`,
+          idempotencyKey: `m5:closure:${cycle.id}:timeout`,
+        });
+      }
+      return eligible.length;
+    });
   }
 
   async setHandlerUnderReview(

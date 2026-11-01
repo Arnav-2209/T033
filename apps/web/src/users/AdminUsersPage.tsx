@@ -4,6 +4,7 @@ import { userRoles, type PublicUser, type UserRole } from '@sgrs/contracts';
 import { useAuth } from '../auth/AuthProvider.js';
 import { ApiClientError, api } from '../lib/api.js';
 import { roleRoutes } from '../auth/LoginPage.js';
+import { ScrollReveal } from '../visual/ScrollReveal.js';
 
 const roleLabels: Record<UserRole, string> = {
   STUDENT: 'Student',
@@ -95,21 +96,27 @@ export function AdminUsersPage(): ReactNode {
             <strong>{user?.name}</strong>
             <span>{user?.email}</span>
           </div>
+          <Link className="button button--quiet" to="/app/admin/categories">
+            Categories and staffing
+          </Link>
+          <Link className="button button--quiet" to="/app/admin/reports">
+            Reports
+          </Link>
           <button className="button button--quiet" onClick={() => void logout()}>
             Sign out
           </button>
         </div>
       </header>
-      <section className="workspace-intro workspace-intro--compact">
+      <ScrollReveal as="section" className="workspace-intro workspace-intro--compact" distance={24}>
         <p className="eyebrow">ADMINISTRATION · ACCOUNT LIFECYCLE</p>
         <h1>Access register.</h1>
         <p>
           Create accounts, assign a role and deactivate access when required. Every change is
           recorded in the audit log.
         </p>
-      </section>
+      </ScrollReveal>
 
-      <section className="user-register" aria-labelledby="register-title">
+      <ScrollReveal as="section" className="user-register" aria-labelledby="register-title">
         <div className="user-register__toolbar">
           <div>
             <p className="eyebrow">DIRECTORY</p>
@@ -239,7 +246,7 @@ export function AdminUsersPage(): ReactNode {
           Passwords and session tokens are never shown. Role or activation changes revoke existing
           sessions.
         </p>
-      </section>
+      </ScrollReveal>
     </main>
   );
 }

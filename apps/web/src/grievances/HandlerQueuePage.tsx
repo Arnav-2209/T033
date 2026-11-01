@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { GrievanceStatus, GrievanceSummary } from '@sgrs/contracts';
 import { ApiClientError, api } from '../lib/api.js';
 import { WorkspaceLayout } from './WorkspaceLayout.js';
+import { ScrollReveal } from '../visual/ScrollReveal.js';
 
 function displayDate(value: string | null): string {
   return value
@@ -64,7 +65,7 @@ export function HandlerQueuePage(): ReactNode {
       title="The cases routed to you."
       introduction="This queue contains cases currently assigned to your account. Each target date is the deadline snapshot recorded when the student submitted the grievance."
     >
-      <section className="case-section" aria-labelledby="handler-cases-heading">
+      <ScrollReveal as="section" className="case-section" aria-labelledby="handler-cases-heading">
         {workload && (
           <div className="workflow-stats" aria-label="Handler workload">
             <div>
@@ -131,8 +132,14 @@ export function HandlerQueuePage(): ReactNode {
           </p>
         ) : items.length ? (
           <div className="grievance-grid">
-            {items.map((item) => (
-              <article className="grievance-card" key={item.id}>
+            {items.map((item, index) => (
+              <ScrollReveal
+                as="article"
+                className="grievance-card"
+                key={item.id}
+                delay={(index % 3) * 0.08}
+                distance={22}
+              >
                 <div className="grievance-card__top">
                   <span className="status-pill">{item.status.replaceAll('_', ' ')}</span>
                   <span className="grievance-card__date">{item.caseNumber}</span>
@@ -149,7 +156,7 @@ export function HandlerQueuePage(): ReactNode {
                 <Link className="grievance-card__link" to={'/app/handler/grievances/' + item.id}>
                   Review case record <span aria-hidden="true">↗</span>
                 </Link>
-              </article>
+              </ScrollReveal>
             ))}
           </div>
         ) : (
@@ -161,7 +168,7 @@ export function HandlerQueuePage(): ReactNode {
             </div>
           </div>
         )}
-      </section>
+      </ScrollReveal>
     </WorkspaceLayout>
   );
 }

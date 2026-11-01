@@ -51,6 +51,11 @@ export function LoginPage(): ReactNode {
   return (
     <main className="login-page">
       <section className="login-story" aria-labelledby="login-title">
+        <img
+          className="login-brand"
+          src="/lnmiit-logo.png"
+          alt="The LNM Institute of Information Technology, Jaipur"
+        />
         <p className="eyebrow">THE LNM INSTITUTE OF INFORMATION TECHNOLOGY · JAIPUR</p>
         <div className="login-story__content">
           <p className="story-index">A considered process for raising a concern</p>

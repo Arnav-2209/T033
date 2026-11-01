@@ -111,16 +111,25 @@ async function main(): Promise<void> {
   const hostel = await prisma.category.findUniqueOrThrow({
     where: { name: 'Hostel/Infrastructure' },
   });
-  await prisma.categoryHandler.upsert({
-    where: { categoryId_handlerId: { categoryId: hostel.id, handlerId: handler.id } },
-    update: { isPrimary: true, activeTo: null },
-    create: {
-      categoryId: hostel.id,
-      handlerId: handler.id,
-      isPrimary: true,
-      createdById: admin.id,
-    },
+  const activeHostelHandler = await prisma.categoryHandler.findFirst({
+    where: { categoryId: hostel.id, handlerId: handler.id, activeTo: null },
+    select: { id: true },
   });
+  if (activeHostelHandler) {
+    await prisma.categoryHandler.update({
+      where: { id: activeHostelHandler.id },
+      data: { isPrimary: true },
+    });
+  } else {
+    await prisma.categoryHandler.create({
+      data: {
+        categoryId: hostel.id,
+        handlerId: handler.id,
+        isPrimary: true,
+        createdById: admin.id,
+      },
+    });
+  }
   await prisma.category.update({
     where: { id: hostel.id },
     data: { primaryHandlerId: handler.id },

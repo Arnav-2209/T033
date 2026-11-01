@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import type { GrievanceDetail } from '@sgrs/contracts';
 import { ApiClientError, api } from '../lib/api.js';
 import { WorkspaceLayout } from './WorkspaceLayout.js';
+import { ScrollReveal } from '../visual/ScrollReveal.js';
 
 const statusLabels: Record<string, string> = {
   ASSIGNED: 'Assigned to a category handler',
@@ -64,7 +65,11 @@ export function SubmissionConfirmationPage(): ReactNode {
           {error ?? 'Submission was not found.'}
         </p>
       ) : (
-        <section className="submission-confirmation" aria-labelledby="confirmation-reference">
+        <ScrollReveal
+          as="section"
+          className="submission-confirmation"
+          aria-labelledby="confirmation-reference"
+        >
           <p className="eyebrow">CASE REFERENCE</p>
           <h2 id="confirmation-reference">{grievance.caseNumber}</h2>
           <span className={'status-pill status-pill--' + grievance.status.toLowerCase()}>
@@ -97,7 +102,7 @@ export function SubmissionConfirmationPage(): ReactNode {
               Return to my cases
             </Link>
           </div>
-        </section>
+        </ScrollReveal>
       )}
     </WorkspaceLayout>
   );

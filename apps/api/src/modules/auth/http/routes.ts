@@ -55,7 +55,13 @@ export async function registerAuthRoutes(
 
   app.post(
     '/api/v1/auth/login',
-    { preHandler: [sameOrigin, loginLimit] },
+    {
+      // The global plugin would mark this request as already rate limited
+      // before the account/IP-specific preHandler runs. Exclude it from the
+      // global bucket so the stricter login limiter is actually enforced.
+      config: { rateLimit: false },
+      preHandler: [sameOrigin, loginLimit],
+    },
     async (request, reply) => {
       const parsed = loginSchema.safeParse(request.body);
       if (!parsed.success) invalidBody();

@@ -37,4 +37,15 @@ describe('foundation HTTP app', () => {
     expect(response.json().error.requestId).toBeTruthy();
     await app.close();
   });
+
+  it('sets baseline browser security headers on API responses', async () => {
+    const app = await buildApp(loadEnvironment({ NODE_ENV: 'test' }));
+    const response = await app.inject({ method: 'GET', url: '/health/live' });
+
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.headers['x-frame-options']).toBe('SAMEORIGIN');
+    expect(response.headers['referrer-policy']).toBeTruthy();
+    expect(response.headers['x-powered-by']).toBeUndefined();
+    await app.close();
+  });
 });

@@ -17,6 +17,8 @@ const environmentSchema = z
     SESSION_ABSOLUTE_TIMEOUT_HOURS: z.coerce.number().int().min(1).max(168).default(12),
     AUTH_LOGIN_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100).default(10),
     AUTH_LOGIN_WINDOW_SECONDS: z.coerce.number().int().min(1).max(86_400).default(900),
+    API_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(100_000).default(100),
+    API_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(1).max(86_400).default(60),
     EVIDENCE_STORAGE_DIR: z.string().min(1).default('.data/evidence'),
     INSTITUTION_TIME_ZONE: z.string().min(1).default('Asia/Kolkata'),
   })

@@ -5,7 +5,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': { target: 'http://127.0.0.1:4000', changeOrigin: true },
+      '/api': {
+        target: process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:4000',
+        changeOrigin: true,
+      },
     },
   },
 });

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { GrievanceSummary } from '@sgrs/contracts';
 import { ApiClientError, api } from '../lib/api.js';
 import { WorkspaceLayout } from './WorkspaceLayout.js';
+import { ScrollReveal } from '../visual/ScrollReveal.js';
 
 const statusLabels: Record<string, string> = {
   DRAFT: 'Draft',
@@ -30,7 +31,7 @@ function GrievanceCard({
   draft?: boolean;
 }): ReactNode {
   return (
-    <article className="grievance-card">
+    <ScrollReveal as="article" className="grievance-card" distance={22}>
       <div className="grievance-card__top">
         <span className={'status-pill status-pill--' + grievance.status.toLowerCase()}>
           {statusLabels[grievance.status] ?? grievance.status}
@@ -68,7 +69,7 @@ function GrievanceCard({
       >
         {draft ? 'Continue draft' : 'View case'} <span aria-hidden="true">↗</span>
       </Link>
-    </article>
+    </ScrollReveal>
   );
 }
 
@@ -101,7 +102,10 @@ export function StudentDashboardPage(): ReactNode {
     };
   }, []);
 
-  const drafts = useMemo(() => items.filter((item) => item.status === 'DRAFT'), [items]);
+  const drafts = useMemo(
+    () => items.filter((item) => item.status === 'DRAFT' && item.hasDraftContent),
+    [items],
+  );
   const submitted = useMemo(() => items.filter((item) => item.status !== 'DRAFT'), [items]);
   const openCount = submitted.filter(
     (item) => !['RESOLVED', 'CLOSED', 'WITHDRAWN'].includes(item.status),
@@ -119,20 +123,26 @@ export function StudentDashboardPage(): ReactNode {
         </Link>
       }
     >
-      <section className="case-stats" aria-label="Grievance overview">
+      <ScrollReveal
+        as="section"
+        className={drafts.length ? 'case-stats' : 'case-stats case-stats--without-drafts'}
+        aria-label="Grievance overview"
+      >
         <div>
           <span>Open cases</span>
           <strong>{openCount}</strong>
         </div>
-        <div>
-          <span>Saved drafts</span>
-          <strong>{drafts.length}</strong>
-        </div>
+        {drafts.length > 0 && (
+          <div>
+            <span>Saved drafts</span>
+            <strong>{drafts.length}</strong>
+          </div>
+        )}
         <div>
           <span>Total submitted</span>
           <strong>{submitted.length}</strong>
         </div>
-      </section>
+      </ScrollReveal>
 
       {error && (
         <p className="notice notice--error" role="alert">
@@ -145,37 +155,26 @@ export function StudentDashboardPage(): ReactNode {
         </p>
       ) : (
         <>
-          <section className="case-section" aria-labelledby="drafts-heading">
-            <div className="case-section__heading">
-              <div>
-                <p className="eyebrow">IN PROGRESS</p>
-                <h2 id="drafts-heading">Saved drafts</h2>
+          {drafts.length > 0 && (
+            <ScrollReveal as="section" className="case-section" aria-labelledby="drafts-heading">
+              <div className="case-section__heading">
+                <div>
+                  <p className="eyebrow">IN PROGRESS</p>
+                  <h2 id="drafts-heading">Saved drafts</h2>
+                </div>
+                <span>
+                  {drafts.length} {drafts.length === 1 ? 'draft' : 'drafts'}
+                </span>
               </div>
-              <span>
-                {drafts.length} {drafts.length === 1 ? 'draft' : 'drafts'}
-              </span>
-            </div>
-            {drafts.length ? (
               <div className="grievance-grid">
                 {drafts.map((item) => (
                   <GrievanceCard key={item.id} grievance={item} draft />
                 ))}
               </div>
-            ) : (
-              <div className="case-empty">
-                <span className="case-empty__index">01</span>
-                <div>
-                  <h3>No drafts in progress</h3>
-                  <p>You can save an incomplete form and return when you have the details ready.</p>
-                </div>
-                <Link to="/app/student/grievances/new">
-                  Begin a draft <span aria-hidden="true">↗</span>
-                </Link>
-              </div>
-            )}
-          </section>
+            </ScrollReveal>
+          )}
 
-          <section className="case-section" aria-labelledby="cases-heading">
+          <ScrollReveal as="section" className="case-section" aria-labelledby="cases-heading">
             <div className="case-section__heading">
               <div>
                 <p className="eyebrow">YOUR RECORD</p>
@@ -203,7 +202,7 @@ export function StudentDashboardPage(): ReactNode {
                 </div>
               </div>
             )}
-          </section>
+          </ScrollReveal>
         </>
       )}
     </WorkspaceLayout>
