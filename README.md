@@ -1,6 +1,6 @@
-# SGRS Rebuild
+# SGRS: Student Grievance Redressal System
 
-A fresh implementation of the Student Grievance Redressal System for LNMIIT Jaipur (CS314, T033). This repository is separate from the supplied prototype. Phases 1–2 establish the monorepo, runtime, PostgreSQL/Prisma foundation, synthetic seed, CI checks and session-based role access. Phase 3 adds grievance drafts, evidence, student submission, automatic category routing, manual-assignment queue status and SLA snapshots. Phase 4 adds handler and reviewer investigation workflows. Phase 5 resolution, student feedback and automatic closure are implemented. Phase 6 adds category and staff routing administration, role-scoped notifications, aggregate reports and administrator audit views. Phase 7 adds the responsive public story, shared editorial design tokens, and a reduced-motion-aware scroll sequence. Reopening remains disabled under DEC-010; notification email and deadline reminder cadence remain unresolved under DEC-031.
+Student Grievance Redressal System for LNMIIT Jaipur (CS314, T033). The project provides role-based case submission, investigation, escalation, resolution, feedback and institutional oversight. Reopening remains disabled under DEC-010; notification email and deadline reminder cadence remain unresolved under DEC-031.
 
 ## Requirements
 
