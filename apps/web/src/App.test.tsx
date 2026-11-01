@@ -116,7 +116,7 @@ describe('public SGRS story', () => {
     );
   });
 
-  it('keeps all story chapters available without installing scroll motion when reduced motion is preferred', async () => {
+  it('keeps chapters available with static state tracking when reduced motion is preferred', async () => {
     window.history.pushState({}, '', '/');
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       response({ error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } }, 401),
@@ -140,7 +140,7 @@ describe('public SGRS story', () => {
     expect(screen.getByRole('heading', { name: 'A considered route.' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'A careful review.' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'A visible outcome.' })).toBeTruthy();
-    expect(observe).not.toHaveBeenCalled();
+    expect(observe).toHaveBeenCalledTimes(4);
   });
 });
 
