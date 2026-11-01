@@ -82,6 +82,11 @@ test.describe('role entry and route boundaries', () => {
   test('the public story supports keyboard entry into the single sign-in flow', async ({
     page,
   }) => {
+    // Audit a stable, fully visible state. The landing page has intentional Motion
+    // entrance/reveal effects; scanning while those elements are at partial opacity
+    // makes axe report transient contrast ratios that users do not encounter once
+    // the animation completes. Reduced motion also exercises the accessible variant.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
     await expect(
       page.getByRole('heading', { name: 'A concern deserves a clear path forward.' }),
